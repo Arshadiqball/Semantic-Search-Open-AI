@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+QUICKSTART.md
+.env
+.env.local
+uploads
+*.log
+test-client.html
+test-api.sh
+setup.sh
+
