@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Semantic Job Matcher | AI Resume Match</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --primary: #3b82f6;
+      --secondary: #60a5fa;
+      --bg-dark: #0b0b0f;
+      --card-bg: #11131a;
+      --border: #1f2937;
+      --text-light: #e5e7eb;
+      --text-dim: #9ca3af;
+      --accent: #60a5fa;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-light);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* HERO */
+    .hero {
+      background: url('https://www.transparenttextures.com/patterns/dark-mosaic.png') repeat;
+      background-color: #0d0f15;
+      background-size: contain;
+      padding: 120px 20px 100px;
+      text-align: center;
+      position: relative;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(circle at center, rgba(59,130,246,0.25) 0%, rgba(17,17,17,0.9) 100%);
+      z-index: 0;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .hero h1 {
+      font-size: 3rem;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #fff;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: 1.1rem;
+      color: var(--text-dim);
+      margin-top: 15px;
+      margin-bottom: 35px;
+    }
+
+    /* CARD */
+    .card {
+      background: rgba(17, 20, 27, 0.85);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(59, 130, 246, 0.15);
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+      padding: 50px 40px;
+      max-width: 1500px;
+      margin: -60px auto 60px;
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 60px rgba(59, 130, 246, 0.25);
+    }
+
+    .file-input-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 15px 30px;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      color: white;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.3s;
+      box-shadow: 0 5px 25px rgba(59,130,246,0.35);
+    }
+
+    .file-input-label:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(96,165,250,0.5);
+    }
+
+    .file-name {
+      margin-top: 15px;
+      color: #9ca3af;
+      font-size: 0.9rem;
+      letter-spacing: 0.2px;
+    }
+
+    .upload-btn {
+      margin-top: 40px;
+      padding: 15px 50px;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 25px rgba(59,130,246,0.3);
+    }
+
+    .upload-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 35px rgba(96,165,250,0.5);
+    }
+
+    .upload-btn:disabled {
+      background: #374151;
+      cursor: not-allowed;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      margin-top: 35px;
+    }
+
+    .spinner {
+      border: 4px solid rgba(59,130,246,0.1);
+      border-top: 4px solid #3b82f6;
+      border-radius: 50%;
+      width: 45px;
+      height: 45px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* RESULTS */
+    .results {
+      display: none;
+      margin-top: 40px;
+    }
+
+    .result-header {
+      background: rgba(255,255,255,0.03);
+      border-left: 4px solid var(--accent);
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 30px;
+      text-align: left;
+    }
+
+    .result-header h3 {
+      font-size: 1.4rem;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .result-header p {
+      font-size: 0.95rem;
+      color: var(--text-dim);
+    }
+
+    .skills-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .skill-tag {
+      background: rgba(59,130,246,0.15);
+      color: var(--accent);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      border: 1px solid rgba(96,165,250,0.2);
+    }
+
+    /* JOB LIST */
+    .job-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 25px;
+    }
+
+    .job-card {
+      background: linear-gradient(180deg, rgba(17, 18, 24, 0.9) 0%, rgba(11, 13, 20, 1) 100%);
+      border: 1px solid rgba(59,130,246,0.15);
+      border-radius: 14px;
+      padding: 25px 28px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.35s ease;
+    }
+
+    .job-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: -50%;
+      width: 200%;
+      height: 100%;
+      background: linear-gradient(120deg, transparent, rgba(59,130,246,0.08), transparent);
+      transform: skewX(-30deg);
+      transition: all 0.5s ease;
+      opacity: 0;
+    }
+
+    .job-card:hover::before {
+      opacity: 1;
+      left: 0;
+    }
+
+    .job-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 25px rgba(59,130,246,0.25);
+    }
+
+    .job-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 10px;
+    }
+
+    .job-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .company {
+      color: var(--accent);
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    .score-badge {
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      color: white;
+      padding: 5px 12px;
+      border-radius: 30px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+
+    .job-details {
+      margin-top: 10px;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .job-details p strong {
+      color: var(--accent);
+      font-size: 20px;
+    }
+
+    .job-desc {
+      margin-top: 8px;
+      font-size: 0.9rem;
+      color: #d1d5db;
+      line-height: 1.6;
+    }
+
+    .divider {
+      height: 1px;
+      background: rgba(255,255,255,0.08);
+      margin: 12px 0;
+    }
+
+    .job-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .job-tag {
+      background: rgba(59,130,246,0.12);
+      color: var(--accent);
+      border: 1px solid rgba(96,165,250,0.25);
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+
+    .error {
+      background: rgba(255,0,0,0.08);
+      border: 1px solid rgba(255,0,0,0.2);
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      color: #fca5a5;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1>Find Your Next Role with <span>AI-Powered Job Matching</span></h1>
+      <p>Upload your resume and instantly discover the best-fit opportunities using advanced semantic intelligence.</p>
+    </div>
+  </section>
+
+  <!-- CARD -->
+  <div class="card">
+    <div class="upload-section">
+      <div class="file-input-area">
+        <input type="file" id="resumeFile" accept=".pdf" hidden />
+        <label for="resumeFile" class="file-input-label">
+          <span class="icon">📎</span> Choose Resume (PDF)
+        </label>
+        <div class="file-name" id="fileName">No file chosen</div>
+      </div>
+
+      <input type="hidden" id="threshold" min="0" max="1" step="0.1" value="0.5" />
+      <input type="hidden" id="limit" min="1" max="20" value="10" />
+
+      <button class="upload-btn" id="uploadBtn" disabled>🚀 Analyze & Match</button>
+
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Analyzing your resume and finding job matches...</p>
+      </div>
+
+      <div class="results" id="results"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://54.183.65.104:3002';
+    const fileInput = document.getElementById('resumeFile');
+    const fileName = document.getElementById('fileName');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
+    const thresholdInput = document.getElementById('threshold');
+    const limitInput = document.getElementById('limit');
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        fileName.textContent = e.target.files[0].name;
+        uploadBtn.disabled = false;
+      } else {
+        fileName.textContent = 'No file chosen';
+        uploadBtn.disabled = true;
+      }
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('resume', file);
+      formData.append('threshold', thresholdInput.value);
+      formData.append('limit', limitInput.value);
+
+      uploadBtn.disabled = true;
+      loading.style.display = 'block';
+      results.style.display = 'none';
+      results.innerHTML = '';
+
+      try {
+        const response = await fetch(`${API_BASE}/api/upload-resume`, { method: 'POST', body: formData });
+        const data = await response.json();
+        if (data.success) displayResults(data);
+        else throw new Error(data.message || 'Upload failed');
+      } catch (error) {
+        results.innerHTML = `
+          <div class="error">
+            <strong>Error:</strong> ${error.message}<br>
+            Make sure the backend is running at ${API_BASE}
+          </div>`;
+        results.style.display = 'block';
+      } finally {
+        loading.style.display = 'none';
+        uploadBtn.disabled = false;
+      }
+    });
+
+    function displayResults(data) {
+      const skillsHtml = data.extractedSkills.map(skill =>
+        `<span class="skill-tag">${skill}</span>`
+      ).join('');
+
+      let html = `
+        <div class="result-header">
+          <h3>✅ Found ${data.matchCount} Matching Jobs</h3>
+          <p><strong>Experience:</strong> ${data.experienceYears} years</p>
+          <div class="skills-list">${skillsHtml}</div>
+        </div>
+        <div class="job-grid">
+      `;
+
+      data.matches.forEach(match => {
+        html += `
+          <div class="job-card">
+            <div class="job-header">
+              <div>
+                <div class="job-title">${match.title}</div>
+                <div class="company">${match.company}</div>
+              </div>
+              <div class="score-badge">${(match.combinedScore * 100).toFixed(0)}% Match</div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="job-details">
+              <p><strong>📍</strong> ${match.location} &nbsp; <strong>💼</strong> ${match.employmentType}</p>
+              <p><strong>💰</strong> ${match.salaryRange} &nbsp; <strong>📅</strong> ${match.experienceYears} yrs exp.</p>
+            </div>
+
+            <div class="job-desc">
+              ${match.description.substring(0, 180)}...
+            </div>
+
+            <div class="job-tags">
+              ${match.directMatches.slice(0,3).map(s => `<span class="job-tag">✓ ${s}</span>`).join('')}
+              ${match.relatedMatches.slice(0,2).map(r => `<span class="job-tag">≈ ${r.jobSkill}</span>`).join('')}
+            </div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+      results.innerHTML = html;
+      results.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

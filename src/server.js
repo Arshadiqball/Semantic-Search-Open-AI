@@ -3,7 +3,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs/promises';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import https from 'https';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -17,87 +19,89 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 
+// ------------------------------------------------------------
+// 1. SSL Setup
+// ------------------------------------------------------------
+// Make sure these files exist (see instructions below)
+const SSL_KEY_PATH = '/etc/ssl/private/server.key';
+const SSL_CERT_PATH = '/etc/ssl/private/server.crt';
+
+if (!fs.existsSync(SSL_KEY_PATH) || !fs.existsSync(SSL_CERT_PATH)) {
+  console.error('❌ SSL certificate or key not found.');
+  console.error('Generate with:');
+  console.error(`sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ${SSL_KEY_PATH} -out ${SSL_CERT_PATH}`);
+  process.exit(1);
+}
+
+const httpsOptions = {
+  key: fs.readFileSync(SSL_KEY_PATH),
+  cert: fs.readFileSync(SSL_CERT_PATH),
+};
+
+// ------------------------------------------------------------
 // Middleware
-app.use(cors());
+// ------------------------------------------------------------
+app.use(cors()); // you can restrict later with { origin: "https://atwebtechnologies.com" }
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Create uploads directory
+// ------------------------------------------------------------
+// Ensure uploads directory
+// ------------------------------------------------------------
 const uploadsDir = path.join(__dirname, '../uploads');
-await fs.mkdir(uploadsDir, { recursive: true });
+await fsp.mkdir(uploadsDir, { recursive: true });
 
-// Configure multer for file uploads
+// ------------------------------------------------------------
+// Multer for file uploads
+// ------------------------------------------------------------
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'resume-' + uniqueSuffix + path.extname(file.originalname));
-  }
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'resume-' + unique + path.extname(file.originalname));
+  },
 });
 
 const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024, // 5MB default
-  },
+  storage,
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed!'), false);
-    }
-  }
+    file.mimetype === 'application/pdf'
+      ? cb(null, true)
+      : cb(new Error('Only PDF files are allowed!'), false);
+  },
 });
 
+// ------------------------------------------------------------
 // Routes
+// ------------------------------------------------------------
+app.get('/health', (req, res) =>
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+);
 
-/**
- * Health check endpoint
- */
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-/**
- * Upload resume and get job matches
- */
 app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     console.log('Processing resume:', req.file.originalname);
 
-    // Extract text from PDF
     const resumeData = await pdfExtractor.processResume(req.file.path);
-    console.log('Extracted skills:', resumeData.parsed.skills);
-
-    // Store resume in database
     const storedResume = await jobMatchingService.storeResume(
       resumeData,
       req.file.originalname
     );
-    console.log('Resume stored with ID:', storedResume.id);
 
-    // Find matching jobs
     const threshold = parseFloat(req.body.threshold) || 0.5;
     const limit = parseInt(req.body.limit) || 10;
-    
     const matches = await jobMatchingService.findMatchingJobs(
       storedResume.id,
       limit,
       threshold
     );
 
-    console.log(`Found ${matches.length} matching jobs`);
-
-    // Clean up uploaded file
-    await fs.unlink(req.file.path);
+    await fsp.unlink(req.file.path);
 
     res.json({
       success: true,
@@ -105,56 +109,28 @@ app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
       extractedSkills: resumeData.parsed.skills,
       experienceYears: resumeData.parsed.experienceYears,
       matchCount: matches.length,
-      matches: matches,
+      matches,
     });
-
-  } catch (error) {
-    console.error('Error processing resume:', error);
-    
-    // Clean up file on error
-    if (req.file) {
-      await fs.unlink(req.file.path).catch(console.error);
-    }
-
-    res.status(500).json({
-      error: 'Failed to process resume',
-      message: error.message,
-    });
+  } catch (err) {
+    console.error('Error processing resume:', err);
+    if (req.file) await fsp.unlink(req.file.path).catch(() => {});
+    res.status(500).json({ error: 'Failed to process resume', message: err.message });
   }
 });
 
-/**
- * Get matches for a previously uploaded resume
- */
 app.get('/api/resume/:id/matches', async (req, res) => {
   try {
     const resumeId = parseInt(req.params.id);
-    
-    if (isNaN(resumeId)) {
-      return res.status(400).json({ error: 'Invalid resume ID' });
-    }
+    if (isNaN(resumeId)) return res.status(400).json({ error: 'Invalid resume ID' });
 
     const matches = await jobMatchingService.getStoredMatches(resumeId);
-
-    res.json({
-      success: true,
-      resumeId: resumeId,
-      matchCount: matches.length,
-      matches: matches,
-    });
-
-  } catch (error) {
-    console.error('Error getting matches:', error);
-    res.status(500).json({
-      error: 'Failed to get matches',
-      message: error.message,
-    });
+    res.json({ success: true, resumeId, matchCount: matches.length, matches });
+  } catch (err) {
+    console.error('Error getting matches:', err);
+    res.status(500).json({ error: 'Failed to get matches', message: err.message });
   }
 });
 
-/**
- * Get all jobs
- */
 app.get('/api/jobs', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -163,89 +139,61 @@ app.get('/api/jobs', async (req, res) => {
       FROM jobs
       ORDER BY created_at DESC;
     `);
-
-    res.json({
-      success: true,
-      count: result.rows.length,
-      jobs: result.rows,
-    });
-
-  } catch (error) {
-    console.error('Error getting jobs:', error);
-    res.status(500).json({
-      error: 'Failed to get jobs',
-      message: error.message,
-    });
+    res.json({ success: true, count: result.rows.length, jobs: result.rows });
+  } catch (err) {
+    console.error('Error getting jobs:', err);
+    res.status(500).json({ error: 'Failed to get jobs', message: err.message });
   }
 });
 
-/**
- * Get specific job by ID
- */
 app.get('/api/jobs/:id', async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
-    
-    if (isNaN(jobId)) {
-      return res.status(400).json({ error: 'Invalid job ID' });
-    }
+    if (isNaN(jobId)) return res.status(400).json({ error: 'Invalid job ID' });
 
-    const result = await pool.query(`
-      SELECT id, title, company, description, required_skills, preferred_skills,
-             experience_years, location, salary_range, employment_type, created_at
-      FROM jobs
-      WHERE id = $1;
-    `, [jobId]);
+    const result = await pool.query(
+      `SELECT id, title, company, description, required_skills, preferred_skills,
+              experience_years, location, salary_range, employment_type, created_at
+       FROM jobs WHERE id = $1;`,
+      [jobId]
+    );
 
-    if (result.rows.length === 0) {
+    if (result.rows.length === 0)
       return res.status(404).json({ error: 'Job not found' });
-    }
 
-    res.json({
-      success: true,
-      job: result.rows[0],
-    });
-
-  } catch (error) {
-    console.error('Error getting job:', error);
-    res.status(500).json({
-      error: 'Failed to get job',
-      message: error.message,
-    });
+    res.json({ success: true, job: result.rows[0] });
+  } catch (err) {
+    console.error('Error getting job:', err);
+    res.status(500).json({ error: 'Failed to get job', message: err.message });
   }
 });
 
-// Error handling middleware
+// ------------------------------------------------------------
+// Error handler
+// ------------------------------------------------------------
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  });
+  res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
-// Start server
-app.listen(PORT, () => {
+// ------------------------------------------------------------
+// HTTPS Server Start
+// ------------------------------------------------------------
+https.createServer(httpsOptions, app).listen(PORT, () => {
   console.log(`
-╔══════════════════════════════════════════════════════════╗
-║   Semantic Job Matcher API Server                       ║
-║   Server running on: http://localhost:${PORT}              ║
-║   Environment: ${process.env.NODE_ENV || 'development'}                          ║
-╚══════════════════════════════════════════════════════════╝
-
-Available endpoints:
-  GET  /health                      - Health check
-  POST /api/upload-resume           - Upload resume and get matches
-  GET  /api/resume/:id/matches      - Get matches for resume
-  GET  /api/jobs                    - Get all jobs
-  GET  /api/jobs/:id                - Get specific job
-  `);
+╔════════════════════════════════════════════════════════════════════╗
+║  Semantic Job Matcher API (HTTPS Enabled)                          ║
+║  Server running on: https://54.183.65.104:${PORT}                 ║
+║  Environment: ${process.env.NODE_ENV || 'development'}                              ║
+╚════════════════════════════════════════════════════════════════════╝
+`);
 });
 
-// Graceful shutdown
+// ------------------------------------------------------------
+// Graceful Shutdown
+// ------------------------------------------------------------
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, closing server...');
   await pool.end();
   process.exit(0);
 });
-

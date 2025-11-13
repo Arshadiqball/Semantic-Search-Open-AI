@@ -533,3 +533,4 @@ Built with:
 
 Ready to get started? → [QUICKSTART.md](QUICKSTART.md)
 
+pm2 start npm --name semantic-api --time -- start
