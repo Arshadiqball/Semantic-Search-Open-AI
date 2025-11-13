@@ -25,8 +25,8 @@ const PORT = process.env.PORT || 3002;
 // 1. SSL Setup
 // ------------------------------------------------------------
 // Make sure these files exist (see instructions below)
-const SSL_KEY_PATH = '/etc/ssl/private/server.key';
-const SSL_CERT_PATH = '/etc/ssl/private/server.crt';
+const SSL_KEY_PATH = path.join(__dirname, '../ssl/server.key');
+const SSL_CERT_PATH = path.join(__dirname, '../ssl/server.crt');
 
 if (!fs.existsSync(SSL_KEY_PATH) || !fs.existsSync(SSL_CERT_PATH)) {
   console.error('❌ SSL certificate or key not found.');
