@@ -24,7 +24,6 @@ const PORT = process.env.PORT || 3002;
 // ------------------------------------------------------------
 // 1. SSL Setup
 // ------------------------------------------------------------
-// Make sure these files exist (see instructions below)
 const SSL_KEY_PATH = path.join(__dirname, '../ssl/server.key');
 const SSL_CERT_PATH = path.join(__dirname, '../ssl/server.crt');
 
@@ -43,7 +42,7 @@ const httpsOptions = {
 // ------------------------------------------------------------
 // Middleware
 // ------------------------------------------------------------
-app.use(cors()); // you can restrict later with { origin: "https://atwebtechnologies.com" }
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -72,6 +71,21 @@ const upload = multer({
       ? cb(null, true)
       : cb(new Error('Only PDF files are allowed!'), false);
   },
+});
+
+// ------------------------------------------------------------
+// Root route (fixes "Cannot GET /")
+// ------------------------------------------------------------
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <body style="font-family:Arial;background:#0b0b0f;color:#e5e7eb;text-align:center;padding-top:50px;">
+        <h2>✅ Semantic Job Matcher API (HTTPS Enabled)</h2>
+        <p>Server is running on port <b>${PORT}</b>.</p>
+        <p>Try: <code>/health</code> or <code>/api/upload-resume</code></p>
+      </body>
+    </html>
+  `);
 });
 
 // ------------------------------------------------------------
