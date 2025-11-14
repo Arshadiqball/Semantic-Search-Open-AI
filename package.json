@@ -7,8 +7,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "local": "nodemon src/local-server.js",
     "seed": "node src/scripts/seedJobs.js",
-    "init-db": "node src/scripts/initDatabase.js"
+    "init-db": "node src/scripts/initDatabase.js",
+    "migrate": "node src/scripts/runMigrations.js",
+    "migrate:up": "node src/scripts/runMigrations.js up",
+    "migrate:down": "node src/scripts/runMigrations.js down"
   },
   "keywords": ["semantic-search", "job-matching", "openai", "resume-parser"],
   "author": "",

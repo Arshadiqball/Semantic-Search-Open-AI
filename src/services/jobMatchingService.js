@@ -41,9 +41,11 @@ class JobMatchingService {
    * Store resume in database with embedding
    * @param {Object} resumeData - Resume data from PDF extractor
    * @param {string} filename - Original filename
+   * @param {string} email - User email address
+   * @param {string} ipAddress - User IP address
    * @returns {Promise<Object>} Stored resume record
    */
-  async storeResume(resumeData, filename) {
+  async storeResume(resumeData, filename, email = null, ipAddress = null) {
     try {
       // Check if this resume already exists (CACHE CHECK)
       console.log('🔍 Checking if resume already exists...');
@@ -51,7 +53,29 @@ class JobMatchingService {
       
       if (existingResume) {
         console.log('✅ Found existing resume (ID:', existingResume.id, ') - REUSING! No OpenAI calls needed.');
-        return existingResume;
+        // ALWAYS update email and IP for analytics tracking (even if null/empty)
+        // This ensures we capture analytics for every upload, even for cached resumes
+        const updateQuery = `
+          UPDATE resumes 
+          SET email = CASE 
+                        WHEN $1 IS NOT NULL AND $1 != '' THEN $1 
+                        ELSE email 
+                      END,
+              ip_address = CASE 
+                            WHEN $2 IS NOT NULL AND $2 != '' AND $2 != 'unknown' THEN $2 
+                            ELSE ip_address 
+                          END
+          WHERE id = $3
+          RETURNING *;
+        `;
+        const updateResult = await pool.query(updateQuery, [email, ipAddress, existingResume.id]);
+        console.log('📊 Updated analytics for existing resume:', {
+          email: updateResult.rows[0].email || 'NULL',
+          ip_address: updateResult.rows[0].ip_address || 'NULL',
+          provided_email: email || 'NULL',
+          provided_ip: ipAddress || 'NULL'
+        });
+        return updateResult.rows[0];
       }
       
       console.log('⚡ New resume detected - creating embeddings...');
@@ -64,8 +88,8 @@ class JobMatchingService {
 
       // Store in database
       const query = `
-        INSERT INTO resumes (filename, extracted_text, parsed_data, embedding)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO resumes (filename, extracted_text, parsed_data, embedding, email, ip_address)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *;
       `;
 
@@ -74,10 +98,16 @@ class JobMatchingService {
         resumeData.text,
         JSON.stringify(resumeData.parsed),
         JSON.stringify(embedding),
+        email,
+        ipAddress,
       ];
 
       const result = await pool.query(query, values);
       console.log('✅ New resume stored with ID:', result.rows[0].id);
+      console.log('📊 Stored analytics:', {
+        email: result.rows[0].email,
+        ip_address: result.rows[0].ip_address
+      });
       return result.rows[0];
     } catch (error) {
       console.error('Error storing resume:', error);

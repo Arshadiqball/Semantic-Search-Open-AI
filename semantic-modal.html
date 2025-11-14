@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Semantic Job Matcher | AI Resume Match</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="https://atwebtechnologies.com/assets/images/fav-icon-atwebtech.png">
 
   <style>
     :root {
@@ -154,6 +155,78 @@
       color: #9ca3af;
       font-size: 0.9rem;
       letter-spacing: 0.2px;
+    }
+
+    .email-input {
+      margin-top: 25px;
+      width: 100%;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .email-input input {
+      width: 100%;
+      padding: 12px 18px;
+      background: rgba(17, 20, 27, 0.6);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      border-radius: 10px;
+      color: var(--text-light);
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+    }
+
+    .email-input input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .email-input input::placeholder {
+      color: var(--text-dim);
+    }
+
+    .email-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .email-subtitle {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    .email-error {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: #fca5a5;
+      min-height: 16px;
+    }
+
+    .primary-btn {
+      margin-top: 20px;
+      padding: 12px 32px;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      color: white;
+      border: none;
+      border-radius: 999px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+      box-shadow: 0 5px 20px rgba(59,130,246,0.35);
+    }
+
+    .primary-btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(96,165,250,0.5);
+    }
+
+    .primary-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
 
     .upload-btn {
@@ -360,6 +433,10 @@
       margin-top: 20px;
       color: #fca5a5;
     }
+
+    .hidden {
+      display: none;
+    }
   </style>
 </head>
 
@@ -381,31 +458,65 @@
 
   <!-- CARD -->
   <div class="card">
-    <div class="upload-section">
-      <div class="file-input-area">
-        <input type="file" id="resumeFile" accept=".pdf" hidden />
-        <label for="resumeFile" class="file-input-label">
-          <span class="icon">📎</span> Choose Resume (PDF)
-        </label>
-        <div class="file-name" id="fileName">No file chosen</div>
+    <!-- STEP 1: EMAIL -->
+    <div id="emailSection">
+      <div class="email-title">Enter your email to begin</div>
+      <div class="email-subtitle">We’ll use this to tailor your experience and optionally send your matches.</div>
+
+      <div class="email-input">
+        <input 
+          type="email" 
+          id="emailInput" 
+          placeholder="you@example.com"
+          autocomplete="email"
+        />
+      </div>
+      <div class="email-error" id="emailError"></div>
+
+      <button class="primary-btn" id="emailContinueBtn">
+        Continue
+      </button>
+    </div>
+
+    <!-- STEP 2: UPLOAD + RESULTS -->
+    <div class="upload-section hidden" id="uploadSection">
+
+      <!-- Upload controls (will be hidden when showing results) -->
+      <div id="uploadControls">
+        <div class="file-input-area">
+          <input type="file" id="resumeFile" accept=".pdf" hidden />
+          <label for="resumeFile" class="file-input-label">
+            <span class="icon">📎</span> Choose Resume (PDF)
+          </label>
+          <div class="file-name" id="fileName">No file chosen</div>
+        </div>
+
+        <input type="hidden" id="threshold" min="0" max="1" step="0.1" value="0.5" />
+        <input type="hidden" id="limit" min="1" max="20" value="10" />
+
+        <button class="upload-btn" id="uploadBtn" disabled>🚀 Analyze & Match</button>
+
+        <div class="loading" id="loading">
+          <div class="spinner"></div>
+          <p>Analyzing your resume and finding job matches...</p>
+        </div>
       </div>
 
-      <input type="hidden" id="threshold" min="0" max="1" step="0.1" value="0.5" />
-      <input type="hidden" id="limit" min="1" max="20" value="10" />
-
-      <button class="upload-btn" id="uploadBtn" disabled>🚀 Analyze & Match</button>
-
-      <div class="loading" id="loading">
-        <div class="spinner"></div>
-        <p>Analyzing your resume and finding job matches...</p>
-      </div>
-
+      <!-- Results -->
       <div class="results" id="results"></div>
     </div>
   </div>
 
   <script>
     const API_BASE = 'https://54.183.65.104:3002';
+
+    const emailSection = document.getElementById('emailSection');
+    const uploadSection = document.getElementById('uploadSection');
+    const emailInput = document.getElementById('emailInput');
+    const emailError = document.getElementById('emailError');
+    const emailContinueBtn = document.getElementById('emailContinueBtn');
+
+    const uploadControls = document.getElementById('uploadControls');
     const fileInput = document.getElementById('resumeFile');
     const fileName = document.getElementById('fileName');
     const uploadBtn = document.getElementById('uploadBtn');
@@ -413,6 +524,34 @@
     const results = document.getElementById('results');
     const thresholdInput = document.getElementById('threshold');
     const limitInput = document.getElementById('limit');
+
+    let capturedEmail = '';
+
+    function isValidEmail(email) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+
+    emailContinueBtn.addEventListener('click', () => {
+      const value = emailInput.value.trim();
+
+      if (!value) {
+        emailError.textContent = 'Please enter your email to continue.';
+        return;
+      }
+
+      if (!isValidEmail(value)) {
+        emailError.textContent = 'Please enter a valid email address.';
+        return;
+      }
+
+      emailError.textContent = '';
+      capturedEmail = value;
+
+      // Move to step 2
+      emailSection.classList.add('hidden');
+      uploadSection.classList.remove('hidden');
+      uploadSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 
     fileInput.addEventListener('change', (e) => {
       if (e.target.files.length > 0) {
@@ -432,6 +571,12 @@
       formData.append('resume', file);
       formData.append('threshold', thresholdInput.value);
       formData.append('limit', limitInput.value);
+      if (capturedEmail) {
+        formData.append('email', capturedEmail);
+        console.log('📧 Sending email:', capturedEmail);
+      } else {
+        console.log('⚠️ No email captured - make sure you entered email in step 1');
+      }
 
       uploadBtn.disabled = true;
       loading.style.display = 'block';
@@ -444,6 +589,7 @@
         if (data.success) displayResults(data);
         else throw new Error(data.message || 'Upload failed');
       } catch (error) {
+        // On error, keep upload controls visible
         results.innerHTML = `
           <div class="error">
             <strong>Error:</strong> ${error.message}<br>
@@ -456,12 +602,29 @@
       }
     });
 
+    function resetUploadUI() {
+      // Show upload controls again
+      uploadControls.classList.remove('hidden');
+      results.style.display = 'none';
+      results.innerHTML = '';
+      fileInput.value = '';
+      fileName.textContent = 'No file chosen';
+      uploadBtn.disabled = true;
+      uploadSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
     function displayResults(data) {
       const skillsHtml = data.extractedSkills.map(skill =>
         `<span class="skill-tag">${skill}</span>`
       ).join('');
 
+      // Hide the upload controls section when showing results
+      uploadControls.classList.add('hidden');
+
       let html = `
+        <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:16px;">
+          <button class="primary-btn" id="newSearchBtn">Search new resume</button>
+        </div>
         <div class="result-header">
           <h3>✅ Found ${data.matchCount} Matching Jobs</h3>
           <p><strong>Experience:</strong> ${data.experienceYears} years</p>
@@ -503,6 +666,14 @@
       html += `</div>`;
       results.innerHTML = html;
       results.style.display = 'block';
+
+      // Attach handler to "Search new resume" button
+      const newSearchBtn = document.getElementById('newSearchBtn');
+      if (newSearchBtn) {
+        newSearchBtn.addEventListener('click', resetUploadUI);
+      }
+
+      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   </script>
 </body>

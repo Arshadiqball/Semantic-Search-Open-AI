@@ -58,10 +58,28 @@ async function initDatabase() {
         extracted_text TEXT NOT NULL,
         parsed_data JSONB,
         embedding JSONB,
+        email VARCHAR(255),
+        ip_address VARCHAR(45),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log('✓ Resumes table created');
+    
+    // Add email and ip_address columns if they don't exist (for existing databases)
+    try {
+      await client.query(`
+        ALTER TABLE resumes 
+        ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+      `);
+      await client.query(`
+        ALTER TABLE resumes 
+        ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45);
+      `);
+      console.log('✓ Analytics columns added to resumes table');
+    } catch (error) {
+      // Columns might already exist, ignore error
+      console.log('⚠️  Analytics columns check completed');
+    }
 
     // Create job matches table
     console.log('Creating job_matches table...');

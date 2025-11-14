@@ -3,9 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
 import fsp from 'fs/promises';
-import https from 'https';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -19,25 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3002;
-
-// ------------------------------------------------------------
-// 1. SSL Setup
-// ------------------------------------------------------------
-const SSL_KEY_PATH = path.join(__dirname, '../ssl/server.key');
-const SSL_CERT_PATH = path.join(__dirname, '../ssl/server.crt');
-
-if (!fs.existsSync(SSL_KEY_PATH) || !fs.existsSync(SSL_CERT_PATH)) {
-  console.error('❌ SSL certificate or key not found.');
-  console.error('Generate with:');
-  console.error(`sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ${SSL_KEY_PATH} -out ${SSL_CERT_PATH}`);
-  process.exit(1);
-}
-
-const httpsOptions = {
-  key: fs.readFileSync(SSL_KEY_PATH),
-  cert: fs.readFileSync(SSL_CERT_PATH),
-};
+const PORT = process.env.PORT || 3000;
 
 // ------------------------------------------------------------
 // Middleware
@@ -83,9 +63,10 @@ app.get('/', (req, res) => {
   res.send(`
     <html>
       <body style="font-family:Arial;background:#0b0b0f;color:#e5e7eb;text-align:center;padding-top:50px;">
-        <h2>✅ Semantic Job Matcher API (HTTPS Enabled)</h2>
+        <h2>✅ Semantic Job Matcher API (Local Development)</h2>
         <p>Server is running on port <b>${PORT}</b>.</p>
         <p>Try: <code>/health</code> or <code>/api/upload-resume</code></p>
+        <p>Analytics: <a href="/analytics" style="color:#60a5fa;">/analytics</a></p>
       </body>
     </html>
   `);
@@ -303,6 +284,10 @@ app.get('/analytics', (req, res) => {
   res.sendFile(path.join(__dirname, '../analytics.html'));
 });
 
+app.get('/semantic', (req, res) => {
+  res.sendFile(path.join(__dirname, '../semantic-modal.html'));
+});
+
 // ------------------------------------------------------------
 // Error handler
 // ------------------------------------------------------------
@@ -312,14 +297,15 @@ app.use((err, req, res, next) => {
 });
 
 // ------------------------------------------------------------
-// HTTPS Server Start
+// HTTP Server Start (Local Development - No SSL)
 // ------------------------------------------------------------
-https.createServer(httpsOptions, app).listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════════════════╗
-║  Semantic Job Matcher API (HTTPS Enabled)                          ║
-║  Server running on: https://54.183.65.104:${PORT}                 ║
+║  Semantic Job Matcher API (Local Development - HTTP)                ║
+║  Server running on: http://localhost:${PORT}                       ║
 ║  Environment: ${process.env.NODE_ENV || 'development'}                              ║
+║  Analytics: http://localhost:${PORT}/analytics                    ║
 ╚════════════════════════════════════════════════════════════════════╝
 `);
 });
