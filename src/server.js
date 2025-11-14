@@ -86,6 +86,8 @@ app.get('/', (req, res) => {
         <h2>✅ Semantic Job Matcher API (HTTPS Enabled)</h2>
         <p>Server is running on port <b>${PORT}</b>.</p>
         <p>Try: <code>/health</code> or <code>/api/upload-resume</code></p>
+        <p>Analytics: <a href="/analytics" style="color:#60a5fa;">/analytics</a></p>
+        <p>Semantic: <a href="/semantic" style="color:#60a5fa;">/semantic</a></p>
       </body>
     </html>
   `);
