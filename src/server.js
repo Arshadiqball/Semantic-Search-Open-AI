@@ -98,6 +98,14 @@ app.get('/health', (req, res) =>
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 );
 
+app.get('/analytics', (req, res) => {
+  res.sendFile(path.join(__dirname, '../analytics.html'));
+});
+
+app.get('/semantic', (req, res) => {
+  res.sendFile(path.join(__dirname, '../semantic-modal.html'));
+});
+
 app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
