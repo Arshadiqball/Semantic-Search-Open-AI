@@ -27,6 +27,42 @@
       overflow-x: hidden;
     }
 
+    /* BACK LINK */
+    .back-link-wrapper {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 50;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      background: radial-gradient(circle at top left, rgba(59,130,246,0.25), rgba(15,23,42,0.95));
+      color: var(--text-light);
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-decoration: none;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 24px rgba(15,23,42,0.9);
+      transition: all 0.2s ease;
+    }
+
+    .back-link:hover {
+      border-color: var(--accent);
+      color: #ffffff;
+      transform: translateY(-1px);
+      box-shadow: 0 12px 32px rgba(37,99,235,0.4);
+    }
+
+    .back-link .icon {
+      font-size: 1rem;
+    }
+
     /* HERO */
     .hero {
       background: url('https://www.transparenttextures.com/patterns/dark-mosaic.png') repeat;
@@ -328,11 +364,18 @@
 </head>
 
 <body>
+  <!-- BACK TO WEBSITE -->
+  <div class="back-link-wrapper">
+    <a href="/" class="back-link">
+      <span class="icon">←</span>
+      <span>Back to website</span>
+    </a>
+  </div>
+
   <!-- HERO -->
   <section class="hero">
     <div class="hero-content">
       <h1>Find Your Next Role with <span>AI-Powered Job Matching</span></h1>
-      <p>Upload your resume and instantly discover the best-fit opportunities using advanced semantic intelligence.</p>
     </div>
   </section>
 
@@ -362,7 +405,7 @@
   </div>
 
   <script>
-    const API_BASE = 'http://54.183.65.104:3002';
+    const API_BASE = 'https://54.183.65.104:3002';
     const fileInput = document.getElementById('resumeFile');
     const fileName = document.getElementById('fileName');
     const uploadBtn = document.getElementById('uploadBtn');
