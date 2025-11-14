@@ -13,7 +13,7 @@ class JobMatchingService {
       const textHash = extractedText.substring(0, 100).trim();
       
       const query = `
-        SELECT id, filename, extracted_text, parsed_data, embedding, created_at
+        SELECT id, filename, extracted_text, parsed_data, embedding, email, created_at
         FROM resumes
         WHERE LEFT(extracted_text, 100) = $1
         ORDER BY created_at DESC
@@ -38,6 +38,44 @@ class JobMatchingService {
   }
 
   /**
+   * Check if resume with same text AND email already exists
+   * @param {string} extractedText - Resume text
+   * @param {string} email - User email
+   * @returns {Promise<Object|null>} Existing resume or null
+   */
+  async findExistingResumeByEmail(extractedText, email) {
+    try {
+      if (!email) return null; // Can't match by email if no email provided
+      
+      const textHash = extractedText.substring(0, 100).trim();
+      
+      const query = `
+        SELECT id, filename, extracted_text, parsed_data, embedding, email, ip_address, created_at
+        FROM resumes
+        WHERE LEFT(extracted_text, 100) = $1
+          AND email = $2
+        ORDER BY created_at DESC
+        LIMIT 1;
+      `;
+      
+      const result = await pool.query(query, [textHash, email]);
+      
+      if (result.rows.length > 0) {
+        const existing = result.rows[0];
+        // Double check full text matches (first 1000 chars)
+        if (existing.extracted_text.substring(0, 1000) === extractedText.substring(0, 1000)) {
+          return existing;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error checking existing resume by email:', error);
+      return null;
+    }
+  }
+
+  /**
    * Store resume in database with embedding
    * @param {Object} resumeData - Resume data from PDF extractor
    * @param {string} filename - Original filename
@@ -47,8 +85,27 @@ class JobMatchingService {
    */
   async storeResume(resumeData, filename, email = null, ipAddress = null) {
     try {
-      // Check if this resume already exists (CACHE CHECK)
-      console.log('🔍 Checking if resume already exists...');
+      // FIRST: Check if same resume + same email exists (STRICT CACHE - NO OpenAI calls)
+      if (email) {
+        console.log('🔍 Checking if resume with same email already exists...');
+        const existingResumeByEmail = await this.findExistingResumeByEmail(resumeData.text, email);
+        
+        if (existingResumeByEmail) {
+          console.log('✅ Found existing resume with same email (ID:', existingResumeByEmail.id, ') - FULL CACHE HIT! No OpenAI calls needed.');
+          // Update IP address for analytics
+          if (ipAddress && ipAddress !== 'unknown') {
+            await pool.query(
+              `UPDATE resumes SET ip_address = $1 WHERE id = $2`,
+              [ipAddress, existingResumeByEmail.id]
+            );
+          }
+          // Return the existing resume - this will skip ALL OpenAI calls
+          return existingResumeByEmail;
+        }
+      }
+      
+      // SECOND: Check if resume exists (by text only) - may need OpenAI for new email
+      console.log('🔍 Checking if resume already exists (text only)...');
       const existingResume = await this.findExistingResume(resumeData.text);
       
       if (existingResume) {
@@ -149,13 +206,13 @@ class JobMatchingService {
     try {
       // Check if matches already exist in database (CACHE CHECK)
       console.log('🔍 Checking if matches already exist for resume', resumeId);
-      const existingMatches = await this.getStoredMatches(resumeId);
+      const existingMatches = await this.getStoredMatches(resumeId, limit);
       
       if (existingMatches.length > 0) {
         console.log('✅ Found', existingMatches.length, 'cached matches - REUSING! No OpenAI/GPT calls needed.');
         
-        // Convert stored matches to expected format
-        return existingMatches.slice(0, limit).map(match => ({
+        // Convert stored matches to expected format and return latest 10
+        const formattedMatches = existingMatches.slice(0, limit).map(match => ({
           jobId: match.job_id,
           title: match.title,
           company: match.company,
@@ -174,6 +231,9 @@ class JobMatchingService {
           missingSkills: [],
           matchReasoning: 'Cached result from previous analysis',
         }));
+        
+        // Ensure we return exactly the latest 10 (or limit) matches
+        return formattedMatches.slice(0, limit);
       }
       
       console.log('⚡ No cached matches found - running full analysis...');
@@ -264,7 +324,7 @@ class JobMatchingService {
         })
       );
 
-      // Sort by combined score and limit results
+      // Sort by combined score and limit to latest 10 results
       const sortedMatches = enhancedMatches
         .sort((a, b) => b.combinedScore - a.combinedScore)
         .slice(0, limit);
@@ -319,7 +379,7 @@ class JobMatchingService {
    * @param {number} resumeId - Resume ID
    * @returns {Promise<Array>} Previously stored matches
    */
-  async getStoredMatches(resumeId) {
+  async getStoredMatches(resumeId, limit = 10) {
     try {
       const query = `
         SELECT 
@@ -340,10 +400,11 @@ class JobMatchingService {
         FROM job_matches jm
         JOIN jobs j ON jm.job_id = j.id
         WHERE jm.resume_id = $1
-        ORDER BY jm.similarity_score DESC;
+        ORDER BY jm.similarity_score DESC, jm.created_at DESC
+        LIMIT $2;
       `;
 
-      const result = await pool.query(query, [resumeId]);
+      const result = await pool.query(query, [resumeId, limit]);
       return result.rows;
     } catch (error) {
       console.error('Error getting stored matches:', error);
