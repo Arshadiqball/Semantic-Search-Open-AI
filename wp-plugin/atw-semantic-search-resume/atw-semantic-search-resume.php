@@ -27,7 +27,7 @@ define('ATW_SEMANTIC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ATW_SEMANTIC_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 // Default API endpoint (can be changed in settings)
-define('ATW_SEMANTIC_API_BASE', 'http://localhost:3000');
+define('ATW_SEMANTIC_API_BASE', 'https://54.183.65.104:3002');
 
 /**
  * Main plugin class
@@ -133,7 +133,7 @@ class ATW_Semantic_Search_Resume {
                 'Content-Type' => 'application/json',
             ),
             'timeout' => 30,
-            'sslverify' => false, // Set to true in production with proper SSL
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
         if (is_wp_error($response)) {
@@ -388,7 +388,7 @@ class ATW_Semantic_Search_Resume {
                 'Content-Type' => 'multipart/form-data; boundary=' . $boundary,
             ),
             'timeout' => 60,
-            'sslverify' => false,
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
         if (is_wp_error($response)) {
@@ -443,7 +443,7 @@ class ATW_Semantic_Search_Resume {
                 'X-API-Key' => $api_key,
             ),
             'timeout' => 30,
-            'sslverify' => false,
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
         if (is_wp_error($response)) {

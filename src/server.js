@@ -44,7 +44,13 @@ const httpsOptions = {
 // ------------------------------------------------------------
 // Middleware
 // ------------------------------------------------------------
-app.use(cors());
+// CORS configuration - allow requests from any origin (clients will use from their WordPress sites)
+app.use(cors({
+    origin: true, // Allow all origins (clients authenticate via API key)
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

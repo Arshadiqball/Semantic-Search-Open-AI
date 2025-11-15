@@ -108,7 +108,7 @@ $common_tech_stack = array(
                                        required />
                                 <p class="description">
                                     <?php _e('Base URL of your Node.js API server', 'atw-semantic-search'); ?><br>
-                                    <?php _e('Default:', 'atw-semantic-search'); ?> <code>http://localhost:3000</code><br>
+                                    <?php _e('Default:', 'atw-semantic-search'); ?> <code>https://54.183.65.104:3002</code><br>
                                     <?php _e('Make sure your Node.js API is running and accessible at this URL.', 'atw-semantic-search'); ?>
                                 </p>
                             </td>
