@@ -3,24 +3,26 @@ import embeddingService from './embeddingService.js';
 
 class JobMatchingService {
   /**
-   * Check if similar resume already exists
+   * Check if similar resume already exists (tenant-aware)
    * @param {string} extractedText - Resume text
+   * @param {number} clientId - Client ID for tenant isolation
    * @returns {Promise<Object|null>} Existing resume or null
    */
-  async findExistingResume(extractedText) {
+  async findExistingResume(extractedText, clientId) {
     try {
       // Create a simple hash of the text for comparison
       const textHash = extractedText.substring(0, 100).trim();
       
       const query = `
-        SELECT id, filename, extracted_text, parsed_data, embedding, email, created_at
+        SELECT id, filename, extracted_text, parsed_data, embedding, email, client_id, created_at
         FROM resumes
         WHERE LEFT(extracted_text, 100) = $1
+          AND client_id = $2
         ORDER BY created_at DESC
         LIMIT 1;
       `;
       
-      const result = await pool.query(query, [textHash]);
+      const result = await pool.query(query, [textHash, clientId]);
       
       if (result.rows.length > 0) {
         const existing = result.rows[0];
@@ -38,27 +40,29 @@ class JobMatchingService {
   }
 
   /**
-   * Check if resume with same text AND email already exists
+   * Check if resume with same text AND email already exists (tenant-aware)
    * @param {string} extractedText - Resume text
    * @param {string} email - User email
+   * @param {number} clientId - Client ID for tenant isolation
    * @returns {Promise<Object|null>} Existing resume or null
    */
-  async findExistingResumeByEmail(extractedText, email) {
+  async findExistingResumeByEmail(extractedText, email, clientId) {
     try {
       if (!email) return null; // Can't match by email if no email provided
       
       const textHash = extractedText.substring(0, 100).trim();
       
       const query = `
-        SELECT id, filename, extracted_text, parsed_data, embedding, email, ip_address, created_at
+        SELECT id, filename, extracted_text, parsed_data, embedding, email, ip_address, client_id, created_at
         FROM resumes
         WHERE LEFT(extracted_text, 100) = $1
           AND email = $2
+          AND client_id = $3
         ORDER BY created_at DESC
         LIMIT 1;
       `;
       
-      const result = await pool.query(query, [textHash, email]);
+      const result = await pool.query(query, [textHash, email, clientId]);
       
       if (result.rows.length > 0) {
         const existing = result.rows[0];
@@ -76,27 +80,28 @@ class JobMatchingService {
   }
 
   /**
-   * Store resume in database with embedding
+   * Store resume in database with embedding (tenant-aware)
    * @param {Object} resumeData - Resume data from PDF extractor
    * @param {string} filename - Original filename
+   * @param {number} clientId - Client ID for tenant isolation
    * @param {string} email - User email address
    * @param {string} ipAddress - User IP address
    * @returns {Promise<Object>} Stored resume record
    */
-  async storeResume(resumeData, filename, email = null, ipAddress = null) {
+  async storeResume(resumeData, filename, clientId, email = null, ipAddress = null) {
     try {
       // FIRST: Check if same resume + same email exists (STRICT CACHE - NO OpenAI calls)
       if (email) {
         console.log('🔍 Checking if resume with same email already exists...');
-        const existingResumeByEmail = await this.findExistingResumeByEmail(resumeData.text, email);
+        const existingResumeByEmail = await this.findExistingResumeByEmail(resumeData.text, email, clientId);
         
         if (existingResumeByEmail) {
           console.log('✅ Found existing resume with same email (ID:', existingResumeByEmail.id, ') - FULL CACHE HIT! No OpenAI calls needed.');
           // Update IP address for analytics
           if (ipAddress && ipAddress !== 'unknown') {
             await pool.query(
-              `UPDATE resumes SET ip_address = $1 WHERE id = $2`,
-              [ipAddress, existingResumeByEmail.id]
+              `UPDATE resumes SET ip_address = $1 WHERE id = $2 AND client_id = $3`,
+              [ipAddress, existingResumeByEmail.id, clientId]
             );
           }
           // Return the existing resume - this will skip ALL OpenAI calls
@@ -106,7 +111,7 @@ class JobMatchingService {
       
       // SECOND: Check if resume exists (by text only) - may need OpenAI for new email
       console.log('🔍 Checking if resume already exists (text only)...');
-      const existingResume = await this.findExistingResume(resumeData.text);
+      const existingResume = await this.findExistingResume(resumeData.text, clientId);
       
       if (existingResume) {
         console.log('✅ Found existing resume (ID:', existingResume.id, ') - REUSING! No OpenAI calls needed.');
@@ -122,10 +127,10 @@ class JobMatchingService {
                             WHEN $2 IS NOT NULL AND $2 != '' AND $2 != 'unknown' THEN $2 
                             ELSE ip_address 
                           END
-          WHERE id = $3
+          WHERE id = $3 AND client_id = $4
           RETURNING *;
         `;
-        const updateResult = await pool.query(updateQuery, [email, ipAddress, existingResume.id]);
+        const updateResult = await pool.query(updateQuery, [email, ipAddress, existingResume.id, clientId]);
         console.log('📊 Updated analytics for existing resume:', {
           email: updateResult.rows[0].email || 'NULL',
           ip_address: updateResult.rows[0].ip_address || 'NULL',
@@ -145,8 +150,8 @@ class JobMatchingService {
 
       // Store in database
       const query = `
-        INSERT INTO resumes (filename, extracted_text, parsed_data, embedding, email, ip_address)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO resumes (filename, extracted_text, parsed_data, embedding, email, ip_address, client_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *;
       `;
 
@@ -157,6 +162,7 @@ class JobMatchingService {
         JSON.stringify(embedding),
         email,
         ipAddress,
+        clientId,
       ];
 
       const result = await pool.query(query, values);
@@ -196,17 +202,18 @@ class JobMatchingService {
   }
 
   /**
-   * Find matching jobs for a resume using semantic search
+   * Find matching jobs for a resume using semantic search (tenant-aware)
    * @param {number} resumeId - Resume ID
+   * @param {number} clientId - Client ID for tenant isolation
    * @param {number} limit - Maximum number of matches to return
    * @param {number} threshold - Minimum similarity score (0-1)
    * @returns {Promise<Array>} Matching jobs with scores
    */
-  async findMatchingJobs(resumeId, limit = 10, threshold = 0.5) {
+  async findMatchingJobs(resumeId, clientId, limit = 10, threshold = 0.5) {
     try {
       // Check if matches already exist in database (CACHE CHECK)
       console.log('🔍 Checking if matches already exist for resume', resumeId);
-      const existingMatches = await this.getStoredMatches(resumeId, limit);
+      const existingMatches = await this.getStoredMatches(resumeId, clientId, limit);
       
       if (existingMatches.length > 0) {
         console.log('✅ Found', existingMatches.length, 'cached matches - REUSING! No OpenAI/GPT calls needed.');
@@ -238,13 +245,13 @@ class JobMatchingService {
       
       console.log('⚡ No cached matches found - running full analysis...');
       
-      // Get resume data
+      // Get resume data (tenant-aware)
       const resumeQuery = `
-        SELECT id, extracted_text, parsed_data, embedding
+        SELECT id, extracted_text, parsed_data, embedding, client_id
         FROM resumes
-        WHERE id = $1;
+        WHERE id = $1 AND client_id = $2;
       `;
-      const resumeResult = await pool.query(resumeQuery, [resumeId]);
+      const resumeResult = await pool.query(resumeQuery, [resumeId, clientId]);
 
       if (resumeResult.rows.length === 0) {
         throw new Error('Resume not found');
@@ -254,7 +261,7 @@ class JobMatchingService {
       const parsedData = resume.parsed_data;
       const resumeEmbedding = resume.embedding;
 
-      // Get all jobs (we'll calculate similarity in JavaScript)
+      // Get all jobs for this client (tenant-aware)
       const jobQuery = `
         SELECT 
           id,
@@ -268,10 +275,11 @@ class JobMatchingService {
           salary_range,
           employment_type,
           embedding
-        FROM jobs;
+        FROM jobs
+        WHERE client_id = $1;
       `;
 
-      const jobResult = await pool.query(jobQuery);
+      const jobResult = await pool.query(jobQuery, [clientId]);
 
       // Calculate similarity scores for all jobs
       const jobsWithScores = jobResult.rows
@@ -329,9 +337,9 @@ class JobMatchingService {
         .sort((a, b) => b.combinedScore - a.combinedScore)
         .slice(0, limit);
 
-      // Store matches in database
+      // Store matches in database (tenant-aware)
       for (const match of sortedMatches) {
-        await this.storeJobMatch(resumeId, match);
+        await this.storeJobMatch(resumeId, clientId, match);
       }
 
       return sortedMatches;
@@ -342,19 +350,21 @@ class JobMatchingService {
   }
 
   /**
-   * Store job match result
+   * Store job match result (tenant-aware)
    * @param {number} resumeId - Resume ID
+   * @param {number} clientId - Client ID for tenant isolation
    * @param {Object} match - Match data
    */
-  async storeJobMatch(resumeId, match) {
+  async storeJobMatch(resumeId, clientId, match) {
     try {
       const query = `
-        INSERT INTO job_matches (resume_id, job_id, similarity_score, matched_skills)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO job_matches (resume_id, job_id, similarity_score, matched_skills, client_id)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (resume_id, job_id) 
         DO UPDATE SET 
           similarity_score = EXCLUDED.similarity_score,
-          matched_skills = EXCLUDED.matched_skills;
+          matched_skills = EXCLUDED.matched_skills,
+          client_id = EXCLUDED.client_id;
       `;
 
       const matchedSkills = [
@@ -367,6 +377,7 @@ class JobMatchingService {
         match.jobId,
         match.combinedScore,
         matchedSkills,
+        clientId,
       ]);
     } catch (error) {
       console.error('Error storing job match:', error);
@@ -375,11 +386,13 @@ class JobMatchingService {
   }
 
   /**
-   * Get stored matches for a resume
+   * Get stored matches for a resume (tenant-aware)
    * @param {number} resumeId - Resume ID
+   * @param {number} clientId - Client ID for tenant isolation
+   * @param {number} limit - Maximum number of matches to return
    * @returns {Promise<Array>} Previously stored matches
    */
-  async getStoredMatches(resumeId, limit = 10) {
+  async getStoredMatches(resumeId, clientId, limit = 10) {
     try {
       const query = `
         SELECT 
@@ -399,12 +412,14 @@ class JobMatchingService {
           j.employment_type
         FROM job_matches jm
         JOIN jobs j ON jm.job_id = j.id
-        WHERE jm.resume_id = $1
+        WHERE jm.resume_id = $1 
+          AND jm.client_id = $2
+          AND j.client_id = $2
         ORDER BY jm.similarity_score DESC, jm.created_at DESC
-        LIMIT $2;
+        LIMIT $3;
       `;
 
-      const result = await pool.query(query, [resumeId, limit]);
+      const result = await pool.query(query, [resumeId, clientId, limit]);
       return result.rows;
     } catch (error) {
       console.error('Error getting stored matches:', error);

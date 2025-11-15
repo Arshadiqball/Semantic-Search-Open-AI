@@ -1,0 +1,260 @@
+/**
+ * Frontend Styles for ATW Semantic Search Resume Plugin
+ */
+
+.atw-semantic-job-search-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.atw-semantic-job-search-wrapper {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 30px;
+}
+
+.atw-semantic-title {
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0 0 20px 0;
+    color: #333;
+    text-align: center;
+}
+
+.atw-semantic-description {
+    color: #666;
+    margin-bottom: 25px;
+    text-align: center;
+}
+
+.atw-semantic-upload-section {
+    margin-bottom: 30px;
+}
+
+.atw-semantic-form {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.atw-semantic-form-group {
+    margin-bottom: 20px;
+}
+
+.atw-semantic-form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.atw-semantic-required {
+    color: #d63638;
+}
+
+.atw-semantic-input,
+.atw-semantic-file-input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+    transition: border-color 0.3s;
+}
+
+.atw-semantic-input:focus,
+.atw-semantic-file-input:focus {
+    outline: none;
+    border-color: #2271b1;
+}
+
+.atw-semantic-help-text {
+    font-size: 13px;
+    color: #666;
+    margin-top: 5px;
+}
+
+.atw-semantic-submit-btn {
+    width: 100%;
+    padding: 15px;
+    background: #2271b1;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.atw-semantic-submit-btn:hover {
+    background: #135e96;
+}
+
+.atw-semantic-submit-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+.atw-semantic-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: atw-spin 0.8s linear infinite;
+}
+
+@keyframes atw-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Results Section */
+.atw-semantic-results {
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 2px solid #eee;
+}
+
+.atw-semantic-results h3 {
+    font-size: 24px;
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.atw-semantic-results-content {
+    display: grid;
+    gap: 20px;
+}
+
+.atw-semantic-job-card {
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    transition: box-shadow 0.3s;
+}
+
+.atw-semantic-job-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.atw-semantic-job-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 10px 0;
+    color: #2271b1;
+}
+
+.atw-semantic-job-company {
+    font-size: 16px;
+    color: #666;
+    margin-bottom: 15px;
+}
+
+.atw-semantic-job-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 15px;
+    font-size: 14px;
+    color: #666;
+}
+
+.atw-semantic-job-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.atw-semantic-job-description {
+    color: #555;
+    line-height: 1.6;
+    margin-bottom: 15px;
+}
+
+.atw-semantic-job-skills {
+    margin-top: 15px;
+}
+
+.atw-semantic-job-skills-label {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.atw-semantic-skill-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.atw-semantic-skill-tag {
+    background: #2271b1;
+    color: #fff;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+}
+
+.atw-semantic-match-score {
+    display: inline-block;
+    background: #00a32a;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 10px;
+}
+
+/* Error Section */
+.atw-semantic-error {
+    margin-top: 20px;
+    padding: 15px;
+    background: #fcf0f1;
+    border: 1px solid #d63638;
+    border-radius: 4px;
+    color: #d63638;
+}
+
+.atw-semantic-error-content {
+    font-weight: 600;
+}
+
+/* Success Message */
+.atw-semantic-success {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f0f6fc;
+    border: 1px solid #00a32a;
+    border-radius: 4px;
+    color: #00a32a;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .atw-semantic-job-search-container {
+        padding: 10px;
+    }
+    
+    .atw-semantic-job-search-wrapper {
+        padding: 20px;
+    }
+    
+    .atw-semantic-title {
+        font-size: 24px;
+    }
+    
+    .atw-semantic-job-meta {
+        flex-direction: column;
+        gap: 8px;
+    }
+}
+

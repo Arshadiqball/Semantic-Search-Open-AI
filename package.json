@@ -12,7 +12,8 @@
     "init-db": "node src/scripts/initDatabase.js",
     "migrate": "node src/scripts/runMigrations.js",
     "migrate:up": "node src/scripts/runMigrations.js up",
-    "migrate:down": "node src/scripts/runMigrations.js down"
+    "migrate:down": "node src/scripts/runMigrations.js down",
+    "create-clients": "node src/scripts/createClients.js"
   },
   "keywords": ["semantic-search", "job-matching", "openai", "resume-parser"],
   "author": "",

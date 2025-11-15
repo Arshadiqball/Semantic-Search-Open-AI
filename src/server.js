@@ -12,6 +12,8 @@ import { dirname } from 'path';
 import pool from './config/database.js';
 import pdfExtractor from './services/pdfExtractor.js';
 import jobMatchingService from './services/jobMatchingService.js';
+import clientService from './services/clientService.js';
+import { authenticateApiKey } from './middleware/authMiddleware.js';
 
 dotenv.config();
 
@@ -100,6 +102,63 @@ app.get('/health', (req, res) =>
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 );
 
+// ------------------------------------------------------------
+// Client Management Routes (Admin)
+// ------------------------------------------------------------
+app.post('/api/admin/clients', async (req, res) => {
+  try {
+    const { name, apiUrl } = req.body;
+    if (!name) return res.status(400).json({ error: 'Client name is required' });
+    
+    const client = await clientService.createClient(name, apiUrl);
+    res.json({ success: true, client });
+  } catch (err) {
+    console.error('Error creating client:', err);
+    res.status(500).json({ error: 'Failed to create client', message: err.message });
+  }
+});
+
+app.get('/api/admin/clients', async (req, res) => {
+  try {
+    const clients = await clientService.getAllClients();
+    res.json({ success: true, clients });
+  } catch (err) {
+    console.error('Error getting clients:', err);
+    res.status(500).json({ error: 'Failed to get clients', message: err.message });
+  }
+});
+
+app.get('/api/admin/clients/:id', async (req, res) => {
+  try {
+    const client = await clientService.getClientById(req.params.id);
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    res.json({ success: true, client });
+  } catch (err) {
+    console.error('Error getting client:', err);
+    res.status(500).json({ error: 'Failed to get client', message: err.message });
+  }
+});
+
+app.put('/api/admin/clients/:id', async (req, res) => {
+  try {
+    const client = await clientService.updateClient(req.params.id, req.body);
+    res.json({ success: true, client });
+  } catch (err) {
+    console.error('Error updating client:', err);
+    res.status(500).json({ error: 'Failed to update client', message: err.message });
+  }
+});
+
+app.post('/api/admin/clients/:id/regenerate-key', async (req, res) => {
+  try {
+    const client = await clientService.regenerateApiKey(req.params.id);
+    res.json({ success: true, client });
+  } catch (err) {
+    console.error('Error regenerating API key:', err);
+    res.status(500).json({ error: 'Failed to regenerate API key', message: err.message });
+  }
+});
+
 app.get('/analytics', (req, res) => {
   res.sendFile(path.join(__dirname, '../analytics.html'));
 });
@@ -108,18 +167,17 @@ app.get('/semantic', (req, res) => {
   res.sendFile(path.join(__dirname, '../semantic-modal.html'));
 });
 
-app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
+// ------------------------------------------------------------
+// Client API Routes (Requires API Key Authentication)
+// ------------------------------------------------------------
+app.post('/api/upload-resume', authenticateApiKey, upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    console.log('Processing resume:', req.file.originalname);
-    console.log('📋 Full request body:', JSON.stringify(req.body, null, 2));
-    console.log('📋 Request body keys:', Object.keys(req.body));
-    console.log('📋 Email in body:', req.body.email);
-    console.log('📋 Email type:', typeof req.body.email);
+    const clientId = req.client.id;
+    console.log(`[Client: ${req.client.name}] Processing resume:`, req.file.originalname);
 
     // Extract email and IP address
-    // Multer should put FormData text fields in req.body
     let email = null;
     if (req.body.email) {
       email = String(req.body.email).trim();
@@ -128,7 +186,7 @@ app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
       }
     }
 
-    // Extract IP address - try multiple methods
+    // Extract IP address
     let ipAddress = req.ip || 
                     req.connection?.remoteAddress || 
                     req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
@@ -136,18 +194,15 @@ app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
                     req.headers['x-real-ip'] ||
                     'unknown';
     
-    // Clean up IP address
     if (ipAddress && ipAddress !== 'unknown') {
-      ipAddress = ipAddress.replace(/^::ffff:/, ''); // Remove IPv6 prefix
+      ipAddress = ipAddress.replace(/^::ffff:/, '');
     }
-
-    console.log('📧 Email extracted:', email || 'NULL');
-    console.log('🌐 IP Address extracted:', ipAddress);
 
     const resumeData = await pdfExtractor.processResume(req.file.path);
     const storedResume = await jobMatchingService.storeResume(
       resumeData,
       req.file.originalname,
+      clientId,
       email,
       ipAddress
     );
@@ -156,6 +211,7 @@ app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
     const limit = parseInt(req.body.limit) || 10;
     const matches = await jobMatchingService.findMatchingJobs(
       storedResume.id,
+      clientId,
       limit,
       threshold
     );
@@ -177,12 +233,14 @@ app.post('/api/upload-resume', upload.single('resume'), async (req, res) => {
   }
 });
 
-app.get('/api/resume/:id/matches', async (req, res) => {
+app.get('/api/resume/:id/matches', authenticateApiKey, async (req, res) => {
   try {
     const resumeId = parseInt(req.params.id);
     if (isNaN(resumeId)) return res.status(400).json({ error: 'Invalid resume ID' });
 
-    const matches = await jobMatchingService.getStoredMatches(resumeId);
+    const clientId = req.client.id;
+    const limit = parseInt(req.query.limit) || 10;
+    const matches = await jobMatchingService.getStoredMatches(resumeId, clientId, limit);
     res.json({ success: true, resumeId, matchCount: matches.length, matches });
   } catch (err) {
     console.error('Error getting matches:', err);
@@ -190,14 +248,16 @@ app.get('/api/resume/:id/matches', async (req, res) => {
   }
 });
 
-app.get('/api/jobs', async (req, res) => {
+app.get('/api/jobs', authenticateApiKey, async (req, res) => {
   try {
+    const clientId = req.client.id;
     const result = await pool.query(`
       SELECT id, title, company, description, required_skills, preferred_skills,
              experience_years, location, salary_range, employment_type, created_at
       FROM jobs
+      WHERE client_id = $1
       ORDER BY created_at DESC;
-    `);
+    `, [clientId]);
     res.json({ success: true, count: result.rows.length, jobs: result.rows });
   } catch (err) {
     console.error('Error getting jobs:', err);
@@ -205,16 +265,17 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
-app.get('/api/jobs/:id', async (req, res) => {
+app.get('/api/jobs/:id', authenticateApiKey, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     if (isNaN(jobId)) return res.status(400).json({ error: 'Invalid job ID' });
 
+    const clientId = req.client.id;
     const result = await pool.query(
       `SELECT id, title, company, description, required_skills, preferred_skills,
               experience_years, location, salary_range, employment_type, created_at
-       FROM jobs WHERE id = $1;`,
-      [jobId]
+       FROM jobs WHERE id = $1 AND client_id = $2;`,
+      [jobId, clientId]
     );
 
     if (result.rows.length === 0)
@@ -230,10 +291,12 @@ app.get('/api/jobs/:id', async (req, res) => {
 // ------------------------------------------------------------
 // Analytics Routes
 // ------------------------------------------------------------
-app.get('/api/analytics', async (req, res) => {
+app.get('/api/analytics', authenticateApiKey, async (req, res) => {
   try {
-    // Get total resume uploads
-    const totalUploads = await pool.query('SELECT COUNT(*) as count FROM resumes');
+    const clientId = req.client.id;
+    
+    // Get total resume uploads (tenant-aware)
+    const totalUploads = await pool.query('SELECT COUNT(*) as count FROM resumes WHERE client_id = $1', [clientId]);
     
     // Get uploads by date
     const uploadsByDate = await pool.query(`
@@ -241,10 +304,11 @@ app.get('/api/analytics', async (req, res) => {
         DATE(created_at) as date,
         COUNT(*) as count
       FROM resumes
+      WHERE client_id = $1
       GROUP BY DATE(created_at)
       ORDER BY date DESC
       LIMIT 30;
-    `);
+    `, [clientId]);
     
     // Get uploads by IP address
     const uploadsByIP = await pool.query(`
@@ -253,10 +317,10 @@ app.get('/api/analytics', async (req, res) => {
         COUNT(*) as count,
         MAX(created_at) as last_upload
       FROM resumes
-      WHERE ip_address IS NOT NULL
+      WHERE ip_address IS NOT NULL AND client_id = $1
       GROUP BY ip_address
       ORDER BY count DESC;
-    `);
+    `, [clientId]);
     
     // Get uploads by email
     const uploadsByEmail = await pool.query(`
@@ -265,10 +329,10 @@ app.get('/api/analytics', async (req, res) => {
         COUNT(*) as count,
         MAX(created_at) as last_upload
       FROM resumes
-      WHERE email IS NOT NULL
+      WHERE email IS NOT NULL AND client_id = $1
       GROUP BY email
       ORDER BY count DESC;
-    `);
+    `, [clientId]);
     
     // Get recent uploads with details
     const recentUploads = await pool.query(`
@@ -278,11 +342,12 @@ app.get('/api/analytics', async (req, res) => {
         email,
         ip_address,
         created_at,
-        (SELECT COUNT(*) FROM job_matches WHERE resume_id = resumes.id) as match_count
+        (SELECT COUNT(*) FROM job_matches WHERE resume_id = resumes.id AND client_id = $1) as match_count
       FROM resumes
+      WHERE client_id = $1
       ORDER BY created_at DESC
       LIMIT 50;
-    `);
+    `, [clientId]);
     
     // Get statistics
     const stats = await pool.query(`
@@ -292,11 +357,13 @@ app.get('/api/analytics', async (req, res) => {
         COUNT(DISTINCT email) as unique_emails,
         COUNT(CASE WHEN email IS NOT NULL THEN 1 END) as uploads_with_email,
         COUNT(CASE WHEN ip_address IS NOT NULL THEN 1 END) as uploads_with_ip
-      FROM resumes;
-    `);
+      FROM resumes
+      WHERE client_id = $1;
+    `, [clientId]);
 
     res.json({
       success: true,
+      client: req.client.name,
       statistics: stats.rows[0],
       uploadsByDate: uploadsByDate.rows,
       uploadsByIP: uploadsByIP.rows,
