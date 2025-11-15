@@ -13,6 +13,7 @@ import pool from './config/database.js';
 import pdfExtractor from './services/pdfExtractor.js';
 import jobMatchingService from './services/jobMatchingService.js';
 import clientService from './services/clientService.js';
+import dummyJobService from './services/dummyJobService.js';
 import { authenticateApiKey } from './middleware/authMiddleware.js';
 
 dotenv.config();
@@ -165,6 +166,29 @@ app.post('/api/admin/clients/:id/regenerate-key', async (req, res) => {
   }
 });
 
+app.post('/api/admin/clients/:id/generate-dummy-jobs', async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const count = parseInt(req.body.count) || 100;
+    
+    if (isNaN(clientId)) {
+      return res.status(400).json({ error: 'Invalid client ID' });
+    }
+    
+    // Verify client exists
+    const client = await clientService.getClientById(clientId);
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+    
+    const result = await dummyJobService.generateDummyJobs(client.id, count);
+    res.json(result);
+  } catch (err) {
+    console.error('Error generating dummy jobs:', err);
+    res.status(500).json({ error: 'Failed to generate dummy jobs', message: err.message });
+  }
+});
+
 app.get('/analytics', (req, res) => {
   res.sendFile(path.join(__dirname, '../analytics.html'));
 });
@@ -176,6 +200,19 @@ app.get('/semantic', (req, res) => {
 // ------------------------------------------------------------
 // Client API Routes (Requires API Key Authentication)
 // ------------------------------------------------------------
+app.post('/api/generate-dummy-jobs', authenticateApiKey, async (req, res) => {
+  try {
+    const clientId = req.client.id;
+    const count = parseInt(req.body.count) || 100;
+    
+    const result = await dummyJobService.generateDummyJobs(clientId, count);
+    res.json(result);
+  } catch (err) {
+    console.error('Error generating dummy jobs:', err);
+    res.status(500).json({ error: 'Failed to generate dummy jobs', message: err.message });
+  }
+});
+
 app.post('/api/upload-resume', authenticateApiKey, upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
