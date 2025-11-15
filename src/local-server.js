@@ -270,6 +270,7 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
     }
     
     console.log(`[API] Processing ${jobs.length} jobs from WordPress for client ${clientId}...`);
+    console.log(`[API] Sample job data:`, jobs.length > 0 ? JSON.stringify(jobs[0], null, 2) : 'No jobs');
     
     // Process and store jobs in Node.js database
     const result = await wordpressJobService.processWordPressJobs(jobs, clientId, pool);
@@ -283,8 +284,19 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
     console.error('[API] Error syncing WordPress jobs:', err);
     console.error('[API] Error details:', {
       message: err.message,
-      stack: err.stack
+      stack: err.stack,
+      name: err.name,
+      code: err.code
     });
+    
+    // Check if it's a database error
+    if (err.code === '42P01') {
+      console.error('[API] Table does not exist - job_embeddings table might be missing');
+      return res.status(500).json({
+        error: 'Database table missing',
+        message: 'job_embeddings table does not exist. Please run migrations: npm run migrate'
+      });
+    }
     
     res.status(500).json({
       error: 'Failed to sync WordPress jobs',

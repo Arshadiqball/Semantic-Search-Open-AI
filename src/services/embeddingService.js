@@ -55,15 +55,38 @@ class EmbeddingService {
    * @returns {string} Text representation
    */
   createJobText(job) {
-    const parts = [
-      `Job Title: ${job.title}`,
-      `Company: ${job.company}`,
-      `Description: ${job.description}`,
-      `Required Skills: ${job.required_skills.join(', ')}`,
-    ];
+    const parts = [];
+    
+    if (job.title) {
+      parts.push(`Job Title: ${job.title}`);
+    }
+    
+    if (job.company) {
+      parts.push(`Company: ${job.company}`);
+    }
+    
+    if (job.description) {
+      parts.push(`Description: ${job.description}`);
+    }
+    
+    // Handle required_skills - can be array or string
+    if (job.required_skills) {
+      const skills = Array.isArray(job.required_skills) 
+        ? job.required_skills.join(', ')
+        : (typeof job.required_skills === 'string' ? job.required_skills : '');
+      if (skills) {
+        parts.push(`Required Skills: ${skills}`);
+      }
+    }
 
-    if (job.preferred_skills && job.preferred_skills.length > 0) {
-      parts.push(`Preferred Skills: ${job.preferred_skills.join(', ')}`);
+    // Handle preferred_skills - can be array or string
+    if (job.preferred_skills) {
+      const skills = Array.isArray(job.preferred_skills)
+        ? job.preferred_skills.join(', ')
+        : (typeof job.preferred_skills === 'string' ? job.preferred_skills : '');
+      if (skills) {
+        parts.push(`Preferred Skills: ${skills}`);
+      }
     }
 
     if (job.experience_years) {

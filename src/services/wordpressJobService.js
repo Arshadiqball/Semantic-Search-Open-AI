@@ -93,11 +93,32 @@ class WordPressJobService {
 
       for (const job of jobs) {
         try {
+          // Validate job data
+          if (!job.id) {
+            console.error(`⚠️ Skipping job - missing ID:`, job);
+            continue;
+          }
+
+          if (!job.title && !job.description) {
+            console.error(`⚠️ Skipping job ${job.id} - missing title and description`);
+            continue;
+          }
+
           // Create text representation for embedding
           const jobText = embeddingService.createJobText(job);
           
+          if (!jobText || jobText.trim().length === 0) {
+            console.error(`⚠️ Skipping job ${job.id} - empty job text`);
+            continue;
+          }
+
           // Generate embedding
           const embedding = await embeddingService.createEmbedding(jobText);
+
+          if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+            console.error(`⚠️ Skipping job ${job.id} - failed to generate embedding`);
+            continue;
+          }
 
           // Check if embedding already exists (by WordPress job ID)
           const checkQuery = await nodejsPool.query(
@@ -140,7 +161,9 @@ class WordPressJobService {
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         } catch (jobError) {
-          console.error(`Error processing job ${job.id}:`, jobError);
+          console.error(`❌ Error processing job ${job?.id || 'unknown'}:`, jobError);
+          console.error(`   Job data:`, JSON.stringify(job, null, 2));
+          // Continue processing other jobs
         }
       }
 
