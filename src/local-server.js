@@ -94,10 +94,31 @@ app.get('/health', (req, res) =>
 // ------------------------------------------------------------
 app.post('/api/admin/clients', async (req, res) => {
   try {
-    const { name, apiUrl } = req.body;
+    const { name, apiUrl, db_config } = req.body;
     if (!name) return res.status(400).json({ error: 'Client name is required' });
     
-    const client = await clientService.createClient(name, apiUrl);
+    // Handle database configuration if provided
+    let dbConfig = null;
+    if (db_config) {
+      dbConfig = {
+        db_host: db_config.db_host || db_config.host,
+        db_port: db_config.db_port || db_config.port || 3306,
+        db_name: db_config.db_name || db_config.database,
+        db_user: db_config.db_user || db_config.user,
+        db_password: db_config.db_password || db_config.password,
+        table_prefix: db_config.table_prefix || db_config.prefix || 'wp_',
+      };
+      
+      // Handle Docker service names
+      if (dbConfig.db_host === 'db' || dbConfig.db_host === 'mysql' || dbConfig.db_host === 'mariadb') {
+        dbConfig.db_host = 'localhost';
+        if (dbConfig.db_port === 3306) {
+          dbConfig.db_port = 3307;
+        }
+      }
+    }
+    
+    const client = await clientService.createClient(name, apiUrl, dbConfig);
     res.json({ success: true, client });
   } catch (err) {
     console.error('Error creating client:', err);
@@ -205,10 +226,8 @@ app.post('/api/generate-dummy-jobs', authenticateApiKey, async (req, res) => {
 app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
   try {
     const clientId = req.client.id;
-    let { db_host, db_port, db_name, db_user, db_password, table_prefix } = req.body;
     
     console.log(`[API] Sync WordPress jobs request - Client ID: ${clientId}`);
-    console.log(`[API] Original DB Host: ${db_host}`);
     
     if (!clientId) {
       return res.status(400).json({ 
@@ -216,60 +235,22 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
       });
     }
     
-    // Validate WordPress database config
-    if (!db_host || !db_name || !db_user || !db_password) {
+    // Get stored database configuration for this client
+    const dbConfig = await clientService.getClientDbConfig(clientId);
+    
+    if (!dbConfig) {
       return res.status(400).json({
-        error: 'Missing WordPress database configuration',
-        message: 'db_host, db_name, db_user, and db_password are required'
+        error: 'Database configuration not found',
+        message: 'WordPress database configuration was not provided during client registration. Please re-register the client with database credentials.'
       });
     }
     
-    // Handle Docker database host resolution
-    // If db_host is a Docker service name (db, mysql, mariadb), resolve to accessible host
-    if (db_host === 'db' || db_host === 'mysql' || db_host === 'mariadb') {
-      // Check if host contains port
-      if (db_host.includes(':')) {
-        const parts = db_host.split(':');
-        db_host = parts[0];
-        db_port = parts[1] || db_port || 3306;
-      }
-      
-      console.log(`[API] Resolving Docker DB host "${db_host}" to accessible address...`);
-      
-      // Use localhost - Docker port mapping exposes MySQL to host
-      db_host = 'localhost';
-      
-      // If port is 3306 (internal Docker port), change to 3307 (host mapped port)
-      // Based on docker-compose.yml: "3307:3306" mapping
-      if (parseInt(db_port) === 3306) {
-        db_port = 3307;
-        console.log(`[API] Using localhost:3307 for database connection (Docker port mapping)`);
-      } else {
-        console.log(`[API] Using localhost:${db_port} for database connection`);
-      }
-    }
-    
-    // Extract port from host if present
-    if (db_host.includes(':')) {
-      const parts = db_host.split(':');
-      db_host = parts[0];
-      db_port = parseInt(parts[1]) || db_port || 3306;
-    }
-    
-    const wpDbConfig = {
-      host: db_host,
-      port: parseInt(db_port) || 3306,
-      database: db_name,
-      user: db_user,
-      password: db_password,
-    };
-    
-    console.log(`[API] Connecting to MySQL: ${wpDbConfig.host}:${wpDbConfig.port}/${wpDbConfig.database}`);
+    console.log(`[API] Using stored DB config: ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
     
     const result = await wordpressJobService.syncJobsFromWordPress(
       clientId,
-      wpDbConfig,
-      table_prefix || 'wp_',
+      dbConfig,
+      dbConfig.tablePrefix,
       pool
     );
     
@@ -290,9 +271,9 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
     // Provide helpful error message for connection issues
     let errorMessage = err.message;
     if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
-      errorMessage = `Cannot connect to WordPress database at ${req.body.db_host}:${req.body.db_port || 3306}. ` +
-        `If WordPress is in Docker, make sure the database port is exposed to the host machine. ` +
-        `Try using 'localhost' instead of Docker service names like 'db' or 'mysql'.`;
+      errorMessage = `Cannot connect to WordPress database. ` +
+        `Please verify the database configuration stored during client registration is correct. ` +
+        `You may need to re-register the client with updated database credentials.`;
     }
     
     res.status(500).json({

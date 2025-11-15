@@ -174,13 +174,47 @@ $common_tech_stack = array(
                                 <p class="description"><?php _e('Keep this secure. Do not share it publicly.', 'atw-semantic-search'); ?></p>
                             </td>
                         </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Database Configuration', 'atw-semantic-search'); ?></th>
+                            <td>
+                                <?php
+                                global $wpdb;
+                                $db_host = DB_HOST;
+                                $db_port = 3307;
+                                if (strpos($db_host, ':') !== false) {
+                                    $parts = explode(':', $db_host);
+                                    $db_host = $parts[0];
+                                    $db_port = isset($parts[1]) ? intval($parts[1]) : 3307;
+                                }
+                                if (in_array($db_host, array('db', 'mysql', 'mariadb'))) {
+                                    $db_host = 'localhost';
+                                    if ($db_port == 3306) {
+                                        $db_port = 3307;
+                                    }
+                                }
+                                ?>
+                                <p>
+                                    <strong><?php _e('Host:', 'atw-semantic-search'); ?></strong> 
+                                    <code><?php echo esc_html($db_host); ?></code><br>
+                                    <strong><?php _e('Port:', 'atw-semantic-search'); ?></strong> 
+                                    <code><?php echo esc_html($db_port); ?></code><br>
+                                    <strong><?php _e('Database:', 'atw-semantic-search'); ?></strong> 
+                                    <code><?php echo esc_html(DB_NAME); ?></code><br>
+                                    <strong><?php _e('Table Prefix:', 'atw-semantic-search'); ?></strong> 
+                                    <code><?php echo esc_html($wpdb->prefix); ?></code>
+                                </p>
+                                <p class="description">
+                                    <?php _e('Database configuration is stored in Node.js server during registration. This allows automatic job syncing without re-entering credentials.', 'atw-semantic-search'); ?>
+                                </p>
+                            </td>
+                        </tr>
                     </table>
                     
                     <p>
                         <button type="submit" 
                                 name="atw_semantic_reregister" 
                                 class="button button-secondary"
-                                onclick="return confirm('<?php _e('This will register this WordPress site as a new client. Continue?', 'atw-semantic-search'); ?>');">
+                                onclick="return confirm('<?php _e('This will re-register this WordPress site and update database configuration. Continue?', 'atw-semantic-search'); ?>');">
                             <?php _e('Re-register with API', 'atw-semantic-search'); ?>
                         </button>
                     </p>
