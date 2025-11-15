@@ -67,6 +67,7 @@ class ATW_Semantic_Search_Resume {
         add_action('wp_ajax_atw_get_jobs', array($this, 'handle_get_jobs'));
         add_action('wp_ajax_nopriv_atw_get_jobs', array($this, 'handle_get_jobs'));
         add_action('wp_ajax_atw_generate_dummy_jobs', array($this, 'handle_generate_dummy_jobs'));
+        add_action('wp_ajax_atw_sync_wordpress_jobs', array($this, 'handle_sync_wordpress_jobs'));
     }
     
     /**
@@ -75,6 +76,10 @@ class ATW_Semantic_Search_Resume {
     public function activate() {
         // Create custom database table for plugin settings
         $this->create_settings_table();
+        
+        // Create wp_jobs table
+        require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
+        ATW_Jobs_Manager::create_jobs_table();
         
         // Flush rewrite rules if needed
         flush_rewrite_rules();
@@ -584,7 +589,7 @@ class ATW_Semantic_Search_Resume {
                 'Content-Type' => 'application/json',
             ),
             'body' => json_encode(array('count' => $count)),
-            'sslverify' => true,
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
             'timeout' => 300, // 5 minutes timeout for generating jobs
         ));
         
@@ -602,6 +607,68 @@ class ATW_Semantic_Search_Resume {
         } else {
             $error_data = json_decode($body, true);
             $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to generate dummy jobs';
+            wp_send_json_error(array('message' => $error_message));
+        }
+    }
+    
+    /**
+     * Handle sync WordPress jobs via AJAX
+     */
+    public function handle_sync_wordpress_jobs() {
+        check_ajax_referer('atw_semantic_nonce', 'nonce');
+        
+        // Check user permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+        
+        $api_key = $this->get_setting('api_key');
+        $api_base = $this->get_setting('api_base_url');
+        if (empty($api_base)) {
+            $api_base = ATW_SEMANTIC_API_BASE;
+        }
+        
+        if (empty($api_key)) {
+            wp_send_json_error(array('message' => 'API key not configured. Please register with API first.'));
+            return;
+        }
+        
+        // Get WordPress database credentials
+        global $wpdb;
+        $db_config = array(
+            'db_host' => DB_HOST,
+            'db_port' => 3306, // MySQL default, adjust if needed
+            'db_name' => DB_NAME,
+            'db_user' => DB_USER,
+            'db_password' => DB_PASSWORD,
+            'table_prefix' => $wpdb->prefix,
+        );
+        
+        $response = wp_remote_post($api_base . '/api/sync-wordpress-jobs', array(
+            'headers' => array(
+                'X-API-Key' => $api_key,
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode($db_config),
+            'sslverify' => false,
+            'timeout' => 300,
+        ));
+        
+        if (is_wp_error($response)) {
+            wp_send_json_error(array('message' => $response->get_error_message()));
+            return;
+        }
+        
+        $response_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        if ($response_code === 200) {
+            $data = json_decode($body, true);
+            wp_send_json_success($data);
+        } else {
+            $error_data = json_decode($body, true);
+            $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to sync WordPress jobs';
             wp_send_json_error(array('message' => $error_message));
         }
     }

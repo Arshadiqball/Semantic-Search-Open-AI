@@ -66,6 +66,7 @@ class ATW_Semantic_Search_Resume {
         add_action('wp_ajax_nopriv_atw_upload_resume', array($this, 'handle_resume_upload'));
         add_action('wp_ajax_atw_get_jobs', array($this, 'handle_get_jobs'));
         add_action('wp_ajax_nopriv_atw_get_jobs', array($this, 'handle_get_jobs'));
+        add_action('wp_ajax_atw_generate_dummy_jobs', array($this, 'handle_generate_dummy_jobs'));
     }
     
     /**
@@ -545,6 +546,62 @@ class ATW_Semantic_Search_Resume {
         } else {
             $error_message = isset($data['message']) ? $data['message'] : (isset($data['error']) ? $data['error'] : 'Failed to fetch jobs.');
             error_log('ATW Semantic: Get jobs API error - ' . $error_message);
+            wp_send_json_error(array('message' => $error_message));
+        }
+    }
+    
+    /**
+     * Handle generate dummy jobs via AJAX
+     */
+    public function handle_generate_dummy_jobs() {
+        check_ajax_referer('atw_semantic_nonce', 'nonce');
+        
+        // Check user permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+        
+        $api_key = $this->get_setting('api_key');
+        $api_base = $this->get_setting('api_base_url');
+        if (empty($api_base)) {
+            $api_base = ATW_SEMANTIC_API_BASE;
+        }
+        
+        if (empty($api_key)) {
+            wp_send_json_error(array('message' => 'API key not configured. Please register with API first.'));
+            return;
+        }
+        
+        $count = isset($_POST['count']) ? intval($_POST['count']) : 100;
+        if ($count < 1 || $count > 500) {
+            $count = 100;
+        }
+        
+        $response = wp_remote_post($api_base . '/api/generate-dummy-jobs', array(
+            'headers' => array(
+                'X-API-Key' => $api_key,
+                'Content-Type' => 'application/json',
+            ),
+            'body' => json_encode(array('count' => $count)),
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
+            'timeout' => 300, // 5 minutes timeout for generating jobs
+        ));
+        
+        if (is_wp_error($response)) {
+            wp_send_json_error(array('message' => $response->get_error_message()));
+            return;
+        }
+        
+        $response_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        if ($response_code === 200) {
+            $data = json_decode($body, true);
+            wp_send_json_success($data);
+        } else {
+            $error_data = json_decode($body, true);
+            $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to generate dummy jobs';
             wp_send_json_error(array('message' => $error_message));
         }
     }

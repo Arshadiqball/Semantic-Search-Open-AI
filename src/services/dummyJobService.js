@@ -13,63 +13,99 @@ class DummyJobService {
    */
   async generateDummyJobs(clientId, count = 200) {
     try {
-      console.log(`[Client ID: ${clientId}] Generating ${count} dummy jobs...`);
+      // Validate clientId
+      if (!clientId || isNaN(clientId)) {
+        throw new Error(`Invalid clientId: ${clientId}. ClientId must be a valid number.`);
+      }
+      
+      const clientIdNum = parseInt(clientId);
+      console.log(`[Client ID: ${clientIdNum}] Generating ${count} dummy jobs...`);
+
+      // Verify client exists
+      const clientCheck = await pool.query('SELECT id, name FROM clients WHERE id = $1', [clientIdNum]);
+      if (clientCheck.rows.length === 0) {
+        throw new Error(`Client with ID ${clientIdNum} does not exist in the database.`);
+      }
+      console.log(`✓ Verified client exists: ${clientCheck.rows[0].name} (ID: ${clientIdNum})`);
 
       const jobTemplates = this.getJobTemplates();
       const createdJobs = [];
 
       for (let i = 0; i < count; i++) {
-        const template = jobTemplates[i % jobTemplates.length];
-        const job = this.createJobFromTemplate(template, i);
+        try {
+          const template = jobTemplates[i % jobTemplates.length];
+          const job = this.createJobFromTemplate(template, i);
 
-        // Create text representation for embedding
-        const jobText = embeddingService.createJobText(job);
-        
-        // Generate embedding
-        const embedding = await embeddingService.createEmbedding(jobText);
+          // Create text representation for embedding
+          const jobText = embeddingService.createJobText(job);
+          
+          // Generate embedding
+          const embedding = await embeddingService.createEmbedding(jobText);
 
-        // Insert job with client_id
-        const query = `
-          INSERT INTO jobs (
-            title, company, description, required_skills, preferred_skills,
-            experience_years, location, salary_range, employment_type, embedding, client_id
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          RETURNING id, title, company;
-        `;
+          // Insert job with client_id
+          const query = `
+            INSERT INTO jobs (
+              title, company, description, required_skills, preferred_skills,
+              experience_years, location, salary_range, employment_type, embedding, client_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING id, title, company, client_id;
+          `;
 
-        const values = [
-          job.title,
-          job.company,
-          job.description,
-          job.required_skills,
-          job.preferred_skills || null,
-          job.experience_years,
-          job.location,
-          job.salary_range,
-          job.employment_type,
-          JSON.stringify(embedding),
-          clientId,
-        ];
+          const values = [
+            job.title,
+            job.company,
+            job.description,
+            job.required_skills,
+            job.preferred_skills || null,
+            job.experience_years,
+            job.location,
+            job.salary_range,
+            job.employment_type,
+            JSON.stringify(embedding),
+            clientIdNum, // Use parsed integer
+          ];
 
-        const result = await pool.query(query, values);
-        createdJobs.push(result.rows[0]);
+          const result = await pool.query(query, values);
+          const insertedJob = result.rows[0];
+          createdJobs.push(insertedJob);
+          
+          // Log first job to verify client_id
+          if (i === 0) {
+            console.log(`✓ First job inserted - ID: ${insertedJob.id}, Title: ${insertedJob.title}, Client ID: ${insertedJob.client_id}`);
+          }
 
-        // Small delay to avoid rate limiting
-        if ((i + 1) % 10 === 0) {
-          console.log(`  → Created ${i + 1}/${count} jobs...`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Small delay to avoid rate limiting
+          if ((i + 1) % 10 === 0) {
+            console.log(`  → Created ${i + 1}/${count} jobs... (Client ID: ${clientIdNum})`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (jobError) {
+          console.error(`Error creating job ${i + 1}:`, jobError);
+          // Continue with next job instead of failing completely
         }
       }
 
-      console.log(`✅ Successfully created ${createdJobs.length} dummy jobs for client ${clientId}`);
+      console.log(`✅ Successfully created ${createdJobs.length} dummy jobs for client ${clientIdNum}`);
+      
+      // Verify jobs were created with correct client_id
+      const verifyQuery = await pool.query(
+        'SELECT COUNT(*) as count FROM jobs WHERE client_id = $1',
+        [clientIdNum]
+      );
+      const totalJobsForClient = parseInt(verifyQuery.rows[0].count);
+      console.log(`✓ Verified: ${totalJobsForClient} total jobs in database for client ${clientIdNum}`);
+      
       return {
         success: true,
         count: createdJobs.length,
-        jobs: createdJobs,
+        totalJobsInDatabase: totalJobsForClient,
+        clientId: clientIdNum,
+        jobs: createdJobs.slice(0, 10), // Return first 10 for preview
       };
     } catch (error) {
       console.error('Error generating dummy jobs:', error);
+      console.error('Error stack:', error.stack);
       throw new Error('Failed to generate dummy jobs: ' + error.message);
     }
   }

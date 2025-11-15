@@ -12,6 +12,7 @@ import pdfExtractor from './services/pdfExtractor.js';
 import jobMatchingService from './services/jobMatchingService.js';
 import clientService from './services/clientService.js';
 import dummyJobService from './services/dummyJobService.js';
+import wordpressJobService from './services/wordpressJobService.js';
 import { authenticateApiKey } from './middleware/authMiddleware.js';
 
 dotenv.config();
@@ -176,11 +177,78 @@ app.post('/api/generate-dummy-jobs', authenticateApiKey, async (req, res) => {
     const clientId = req.client.id;
     const count = parseInt(req.body.count) || 100;
     
+    console.log(`[API] Generate dummy jobs request - Client ID: ${clientId}, Count: ${count}`);
+    console.log(`[API] Client info:`, req.client);
+    
+    if (!clientId) {
+      return res.status(400).json({ 
+        error: 'Client ID is missing', 
+        message: 'Client ID was not found in the authenticated request' 
+      });
+    }
+    
     const result = await dummyJobService.generateDummyJobs(clientId, count);
+    console.log(`[API] Successfully generated jobs:`, result);
     res.json(result);
   } catch (err) {
-    console.error('Error generating dummy jobs:', err);
-    res.status(500).json({ error: 'Failed to generate dummy jobs', message: err.message });
+    console.error('[API] Error generating dummy jobs:', err);
+    console.error('[API] Error stack:', err.stack);
+    res.status(500).json({ 
+      error: 'Failed to generate dummy jobs', 
+      message: err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
+
+// Sync jobs from WordPress database
+app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
+  try {
+    const clientId = req.client.id;
+    const { db_host, db_port, db_name, db_user, db_password, table_prefix } = req.body;
+    
+    console.log(`[API] Sync WordPress jobs request - Client ID: ${clientId}`);
+    
+    if (!clientId) {
+      return res.status(400).json({ 
+        error: 'Client ID is missing'
+      });
+    }
+    
+    // Validate WordPress database config
+    if (!db_host || !db_name || !db_user || !db_password) {
+      return res.status(400).json({
+        error: 'Missing WordPress database configuration',
+        message: 'db_host, db_name, db_user, and db_password are required'
+      });
+    }
+    
+    const wpDbConfig = {
+      host: db_host,
+      port: db_port || 3306, // MySQL default port
+      database: db_name,
+      user: db_user,
+      password: db_password,
+    };
+    
+    const result = await wordpressJobService.syncJobsFromWordPress(
+      clientId,
+      wpDbConfig,
+      table_prefix || 'wp_',
+      pool
+    );
+    
+    console.log(`[API] Successfully synced WordPress jobs:`, result);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    console.error('[API] Error syncing WordPress jobs:', err);
+    res.status(500).json({
+      error: 'Failed to sync WordPress jobs',
+      message: err.message
+    });
   }
 });
 
