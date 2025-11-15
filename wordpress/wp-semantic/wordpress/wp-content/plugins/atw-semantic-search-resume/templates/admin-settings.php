@@ -7,52 +7,79 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Get plugin instance to access methods
+$plugin = ATW_Semantic_Search_Resume::get_instance();
+
 // Handle form submission
 if (isset($_POST['atw_semantic_save_settings']) && check_admin_referer('atw_semantic_settings_nonce')) {
-    update_option('atw_semantic_api_base_url', esc_url_raw($_POST['atw_semantic_api_base_url']));
-    update_option('atw_semantic_threshold', floatval($_POST['atw_semantic_threshold']));
-    update_option('atw_semantic_recommended_jobs_count', intval($_POST['atw_semantic_recommended_jobs_count']));
+    // Save API base URL
+    if (!empty($_POST['atw_semantic_api_base_url'])) {
+        $plugin->save_setting('api_base_url', esc_url_raw($_POST['atw_semantic_api_base_url']));
+    } else {
+        $plugin->delete_setting('api_base_url');
+    }
+    
+    // Save threshold
+    if (!empty($_POST['atw_semantic_threshold']) && $_POST['atw_semantic_threshold'] !== '') {
+        $plugin->save_setting('threshold', floatval($_POST['atw_semantic_threshold']));
+    } else {
+        $plugin->delete_setting('threshold');
+    }
+    
+    // Save recommended jobs count
+    if (!empty($_POST['atw_semantic_recommended_jobs_count']) && $_POST['atw_semantic_recommended_jobs_count'] !== '') {
+        $plugin->save_setting('recommended_jobs_count', intval($_POST['atw_semantic_recommended_jobs_count']));
+    } else {
+        $plugin->delete_setting('recommended_jobs_count');
+    }
     
     // Handle job categories
-    $categories = isset($_POST['atw_semantic_job_categories']) ? array_map('sanitize_text_field', $_POST['atw_semantic_job_categories']) : array();
-    update_option('atw_semantic_job_categories', $categories);
+    if (isset($_POST['atw_semantic_job_categories']) && !empty($_POST['atw_semantic_job_categories'])) {
+        $categories = array_map('sanitize_text_field', $_POST['atw_semantic_job_categories']);
+        $plugin->save_setting('job_categories', $categories);
+    } else {
+        $plugin->delete_setting('job_categories');
+    }
     
     // Handle tech stack
-    $tech_stack = isset($_POST['atw_semantic_tech_stack']) ? sanitize_textarea_field($_POST['atw_semantic_tech_stack']) : '';
-    $tech_stack_array = array_filter(array_map('trim', explode("\n", $tech_stack)));
-    update_option('atw_semantic_tech_stack', $tech_stack_array);
+    if (isset($_POST['atw_semantic_tech_stack']) && !empty(trim($_POST['atw_semantic_tech_stack']))) {
+        $tech_stack = sanitize_textarea_field($_POST['atw_semantic_tech_stack']);
+        $tech_stack_array = array_filter(array_map('trim', explode("\n", $tech_stack)));
+        $plugin->save_setting('tech_stack', $tech_stack_array);
+    } else {
+        $plugin->delete_setting('tech_stack');
+    }
     
-    echo '<div class="notice notice-success"><p>' . __('Settings saved successfully!', 'atw-semantic-search') . '</p></div>';
+    echo '<div class="notice notice-success is-dismissible"><p><strong>' . __('Success!', 'atw-semantic-search') . '</strong> ' . __('Settings saved successfully!', 'atw-semantic-search') . '</p></div>';
 }
 
 // Handle re-registration
 if (isset($_POST['atw_semantic_reregister']) && check_admin_referer('atw_semantic_settings_nonce')) {
-    $plugin = ATW_Semantic_Search_Resume::get_instance();
     $result = $plugin->register_with_api();
     
     if ($result) {
         echo '<div class="notice notice-success is-dismissible"><p><strong>' . __('Success!', 'atw-semantic-search') . '</strong> ' . __('Successfully registered with API!', 'atw-semantic-search') . '</p></div>';
     } else {
-        $error = get_option('atw_semantic_registration_error', __('Unknown error occurred.', 'atw-semantic-search'));
+        $error = $plugin->get_setting('registration_error', __('Unknown error occurred.', 'atw-semantic-search'));
         echo '<div class="notice notice-error is-dismissible"><p><strong>' . __('Error:', 'atw-semantic-search') . '</strong> ' . esc_html($error) . '</p></div>';
     }
 }
 
 // Show registration error if exists
-$registration_error = get_option('atw_semantic_registration_error');
+$registration_error = $plugin->get_setting('registration_error');
 if ($registration_error && !isset($_POST['atw_semantic_reregister'])) {
     echo '<div class="notice notice-warning is-dismissible"><p><strong>' . __('Warning:', 'atw-semantic-search') . '</strong> ' . esc_html($registration_error) . '</p></div>';
 }
 
-// Get current settings
-$api_base_url = get_option('atw_semantic_api_base_url', ATW_SEMANTIC_API_BASE);
-$threshold = get_option('atw_semantic_threshold', 0.5);
-$recommended_jobs_count = get_option('atw_semantic_recommended_jobs_count', 10);
-$job_categories = get_option('atw_semantic_job_categories', array());
-$tech_stack = get_option('atw_semantic_tech_stack', array());
-$client_id = get_option('atw_semantic_client_id', '');
-$api_key = get_option('atw_semantic_api_key', '');
-$is_registered = get_option('atw_semantic_is_registered', false);
+// Get current settings from custom table (all defaults are empty/null)
+$api_base_url = $plugin->get_setting('api_base_url', '');
+$threshold = $plugin->get_setting('threshold', '');
+$recommended_jobs_count = $plugin->get_setting('recommended_jobs_count', '');
+$job_categories = $plugin->get_setting('job_categories', array());
+$tech_stack = $plugin->get_setting('tech_stack', array());
+$client_id = $plugin->get_setting('client_id', '');
+$api_key = $plugin->get_setting('api_key', '');
+$is_registered = $plugin->get_setting('is_registered', false);
 
 // Common job categories
 $common_categories = array(
@@ -103,12 +130,12 @@ $common_tech_stack = array(
                                 <input type="url" 
                                        id="atw_semantic_api_base_url" 
                                        name="atw_semantic_api_base_url" 
-                                       value="<?php echo esc_attr($api_base_url); ?>" 
-                                       class="regular-text" 
-                                       required />
+                                       value="<?php echo esc_attr($api_base_url ?: ATW_SEMANTIC_API_BASE); ?>" 
+                                       placeholder="<?php echo esc_attr(ATW_SEMANTIC_API_BASE); ?>"
+                                       class="regular-text" />
                                 <p class="description">
                                     <?php _e('Base URL of your Node.js API server', 'atw-semantic-search'); ?><br>
-                                    <?php _e('Default:', 'atw-semantic-search'); ?> <code>http://localhost:3000</code><br>
+                                    <?php _e('Default:', 'atw-semantic-search'); ?> <code>https://54.183.65.104:3002</code><br>
                                     <?php _e('Make sure your Node.js API is running and accessible at this URL.', 'atw-semantic-search'); ?>
                                 </p>
                             </td>
@@ -137,13 +164,13 @@ $common_tech_stack = array(
                         <tr>
                             <th scope="row"><?php _e('Client ID', 'atw-semantic-search'); ?></th>
                             <td>
-                                <code><?php echo esc_html($client_id ?: __('Not set', 'atw-semantic-search')); ?></code>
+                                <code><?php echo esc_html(!empty($client_id) ? $client_id : __('Not set', 'atw-semantic-search')); ?></code>
                             </td>
                         </tr>
                         <tr>
                             <th scope="row"><?php _e('API Key', 'atw-semantic-search'); ?></th>
                             <td>
-                                <code style="word-break: break-all;"><?php echo esc_html($api_key ?: __('Not set', 'atw-semantic-search')); ?></code>
+                                <code style="word-break: break-all;"><?php echo esc_html(!empty($api_key) ? $api_key : __('Not set', 'atw-semantic-search')); ?></code>
                                 <p class="description"><?php _e('Keep this secure. Do not share it publicly.', 'atw-semantic-search'); ?></p>
                             </td>
                         </tr>
@@ -176,9 +203,9 @@ $common_tech_stack = array(
                                        min="0" 
                                        max="1" 
                                        step="0.1" 
-                                       class="small-text" 
-                                       required />
-                                <p class="description"><?php _e('Minimum similarity score (0.0 - 1.0) for job matches. Higher values = more strict matching.', 'atw-semantic-search'); ?></p>
+                                       placeholder="0.5"
+                                       class="small-text" />
+                                <p class="description"><?php _e('Minimum similarity score (0.0 - 1.0) for job matches. Higher values = more strict matching. Leave empty for default.', 'atw-semantic-search'); ?></p>
                             </td>
                         </tr>
                         <tr>
@@ -192,9 +219,9 @@ $common_tech_stack = array(
                                        value="<?php echo esc_attr($recommended_jobs_count); ?>" 
                                        min="1" 
                                        max="50" 
-                                       class="small-text" 
-                                       required />
-                                <p class="description"><?php _e('Number of recommended jobs to show (1-50)', 'atw-semantic-search'); ?></p>
+                                       placeholder="10"
+                                       class="small-text" />
+                                <p class="description"><?php _e('Number of recommended jobs to show (1-50). Leave empty for default.', 'atw-semantic-search'); ?></p>
                             </td>
                         </tr>
                     </table>
@@ -211,7 +238,7 @@ $common_tech_stack = array(
                                 <input type="checkbox" 
                                        name="atw_semantic_job_categories[]" 
                                        value="<?php echo esc_attr($category); ?>"
-                                       <?php checked(in_array($category, $job_categories)); ?> />
+                                       <?php checked(is_array($job_categories) && in_array($category, $job_categories)); ?> />
                                 <?php echo esc_html($category); ?>
                             </label>
                         <?php endforeach; ?>
@@ -227,7 +254,7 @@ $common_tech_stack = array(
                               name="atw_semantic_tech_stack" 
                               rows="10" 
                               class="large-text code"
-                              placeholder="<?php _e('JavaScript&#10;React&#10;Node.js&#10;Python&#10;...', 'atw-semantic-search'); ?>"><?php echo esc_textarea(implode("\n", $tech_stack)); ?></textarea>
+                              placeholder="<?php _e('JavaScript&#10;React&#10;Node.js&#10;Python&#10;...', 'atw-semantic-search'); ?>"><?php echo esc_textarea(is_array($tech_stack) && !empty($tech_stack) ? implode("\n", $tech_stack) : ''); ?></textarea>
                     
                     <p class="description">
                         <strong><?php _e('Common technologies:', 'atw-semantic-search'); ?></strong><br>

@@ -27,7 +27,7 @@ define('ATW_SEMANTIC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ATW_SEMANTIC_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 // Default API endpoint (can be changed in settings)
-define('ATW_SEMANTIC_API_BASE', 'http://localhost:3000');
+define('ATW_SEMANTIC_API_BASE', 'https://54.183.65.104:3002');
 
 /**
  * Main plugin class
@@ -72,33 +72,91 @@ class ATW_Semantic_Search_Resume {
      * Plugin activation
      */
     public function activate() {
-        // Set default options first
-        $defaults = array(
-            'api_base_url' => ATW_SEMANTIC_API_BASE,
-            'threshold' => 0.5,
-            'recommended_jobs_count' => 10,
-            'job_categories' => array(),
-            'tech_stack' => array(),
-            'client_id' => '',
-            'api_key' => '',
-            'is_registered' => false,
-        );
-        
-        foreach ($defaults as $key => $value) {
-            if (get_option('atw_semantic_' . $key) === false) {
-                add_option('atw_semantic_' . $key, $value);
-            }
-        }
-        
-        // Try to register with API (non-blocking - user can register manually if it fails)
-        // Only register if not already registered
-        $is_registered = get_option('atw_semantic_is_registered', false);
-        if (!$is_registered) {
-            $this->register_with_api();
-        }
+        // Create custom database table for plugin settings
+        $this->create_settings_table();
         
         // Flush rewrite rules if needed
         flush_rewrite_rules();
+    }
+    
+    /**
+     * Create custom database table for plugin settings
+     */
+    private function create_settings_table() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'atw_semantic_settings';
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+            id int(11) NOT NULL AUTO_INCREMENT,
+            setting_key varchar(100) NOT NULL,
+            setting_value longtext,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY setting_key (setting_key)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+    
+    /**
+     * Get setting value from custom table
+     */
+    public function get_setting($key, $default = null) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'atw_semantic_settings';
+        
+        $value = $wpdb->get_var($wpdb->prepare(
+            "SELECT setting_value FROM $table_name WHERE setting_key = %s",
+            $key
+        ));
+        
+        if ($value === null) {
+            return $default;
+        }
+        
+        // Try to decode JSON, return as-is if not JSON
+        $decoded = json_decode($value, true);
+        return (json_last_error() === JSON_ERROR_NONE) ? $decoded : $value;
+    }
+    
+    /**
+     * Save setting value to custom table
+     */
+    public function save_setting($key, $value) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'atw_semantic_settings';
+        
+        // Encode arrays/objects as JSON
+        if (is_array($value) || is_object($value)) {
+            $value = json_encode($value);
+        }
+        
+        $wpdb->replace(
+            $table_name,
+            array(
+                'setting_key' => $key,
+                'setting_value' => $value,
+            ),
+            array('%s', '%s')
+        );
+    }
+    
+    /**
+     * Delete setting from custom table
+     */
+    public function delete_setting($key) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'atw_semantic_settings';
+        
+        $wpdb->delete(
+            $table_name,
+            array('setting_key' => $key),
+            array('%s')
+        );
     }
     
     /**
@@ -113,7 +171,10 @@ class ATW_Semantic_Search_Resume {
      * Register this WordPress site with the Node.js API
      */
     public function register_with_api() {
-        $api_base = get_option('atw_semantic_api_base_url', ATW_SEMANTIC_API_BASE);
+        $api_base = $this->get_setting('api_base_url');
+        if (empty($api_base)) {
+            $api_base = ATW_SEMANTIC_API_BASE;
+        }
         $site_name = get_bloginfo('name');
         $site_url = get_site_url();
         
@@ -133,7 +194,7 @@ class ATW_Semantic_Search_Resume {
                 'Content-Type' => 'application/json',
             ),
             'timeout' => 30,
-            'sslverify' => false, // Set to true in production with proper SSL
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
         if (is_wp_error($response)) {
@@ -143,9 +204,9 @@ class ATW_Semantic_Search_Resume {
             // Check if it's a connection error and provide helpful message
             if (strpos($error_message, 'Failed to connect') !== false || strpos($error_message, 'Could not connect') !== false) {
                 $helpful_message = $error_message . ' Make sure the Node.js API is running on ' . $api_base;
-                update_option('atw_semantic_registration_error', $helpful_message);
+                $this->save_setting('registration_error', $helpful_message);
             } else {
-                update_option('atw_semantic_registration_error', $error_message);
+                $this->save_setting('registration_error', $error_message);
             }
             return false;
         }
@@ -155,7 +216,7 @@ class ATW_Semantic_Search_Resume {
         
         if ($response_code !== 200) {
             error_log('ATW Semantic: API registration failed with status ' . $response_code . ' - ' . $body);
-            update_option('atw_semantic_registration_error', 'HTTP ' . $response_code . ': ' . substr($body, 0, 200));
+            $this->save_setting('registration_error', 'HTTP ' . $response_code . ': ' . substr($body, 0, 200));
             return false;
         }
         
@@ -163,7 +224,7 @@ class ATW_Semantic_Search_Resume {
         
         if (json_last_error() !== JSON_ERROR_NONE) {
             error_log('ATW Semantic: Invalid JSON response from API - ' . json_last_error_msg());
-            update_option('atw_semantic_registration_error', 'Invalid response from API');
+            $this->save_setting('registration_error', 'Invalid response from API');
             return false;
         }
         
@@ -173,28 +234,28 @@ class ATW_Semantic_Search_Resume {
             // Validate client data
             if (empty($client['clientId']) || empty($client['apiKey'])) {
                 error_log('ATW Semantic: Invalid client data received from API');
-                update_option('atw_semantic_registration_error', 'Invalid client data received');
+                $this->save_setting('registration_error', 'Invalid client data received');
                 return false;
             }
             
             // Store client credentials
-            update_option('atw_semantic_client_id', sanitize_text_field($client['clientId']));
-            update_option('atw_semantic_api_key', sanitize_text_field($client['apiKey']));
-            update_option('atw_semantic_is_registered', true);
+            $this->save_setting('client_id', sanitize_text_field($client['clientId']));
+            $this->save_setting('api_key', sanitize_text_field($client['apiKey']));
+            $this->save_setting('is_registered', true);
             
             // Store IP and email for analytics
-            update_option('atw_semantic_registration_ip', sanitize_text_field($ip_address));
-            update_option('atw_semantic_registration_email', sanitize_email($admin_email));
+            $this->save_setting('registration_ip', sanitize_text_field($ip_address));
+            $this->save_setting('registration_email', sanitize_email($admin_email));
             
             // Clear any previous errors
-            delete_option('atw_semantic_registration_error');
+            $this->delete_setting('registration_error');
             
             return true;
         }
         
         $error_msg = isset($data['message']) ? $data['message'] : 'Unknown error';
         error_log('ATW Semantic: API registration failed - ' . $error_msg);
-        update_option('atw_semantic_registration_error', $error_msg);
+        $this->save_setting('registration_error', $error_msg);
         return false;
     }
     
@@ -243,18 +304,11 @@ class ATW_Semantic_Search_Resume {
     
     /**
      * Register settings
+     * Note: Settings are now stored in custom database table, not WordPress options
      */
     public function register_settings() {
-        // API Settings
-        register_setting('atw_semantic_settings', 'atw_semantic_api_base_url');
-        register_setting('atw_semantic_settings', 'atw_semantic_threshold');
-        register_setting('atw_semantic_settings', 'atw_semantic_recommended_jobs_count');
-        register_setting('atw_semantic_settings', 'atw_semantic_job_categories');
-        register_setting('atw_semantic_settings', 'atw_semantic_tech_stack');
-        
-        // Client info (read-only)
-        register_setting('atw_semantic_settings', 'atw_semantic_client_id');
-        register_setting('atw_semantic_settings', 'atw_semantic_api_key');
+        // Settings are stored in custom database table (wp_atw_semantic_settings)
+        // This function is kept for compatibility but doesn't register WordPress options
     }
     
     /**
@@ -276,12 +330,16 @@ class ATW_Semantic_Search_Resume {
         wp_enqueue_style('atw-semantic-frontend', ATW_SEMANTIC_PLUGIN_URL . 'assets/frontend.css', array(), ATW_SEMANTIC_VERSION);
         wp_enqueue_script('atw-semantic-frontend', ATW_SEMANTIC_PLUGIN_URL . 'assets/frontend.js', array('jquery'), ATW_SEMANTIC_VERSION, true);
         
-        // Localize script with settings
+        // Localize script with settings (frontend needs fallback defaults)
+        $api_base = $this->get_setting('api_base_url');
+        $threshold = $this->get_setting('threshold');
+        $recommended_jobs = $this->get_setting('recommended_jobs_count');
+        
         wp_localize_script('atw-semantic-frontend', 'atwSemantic', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
-            'apiBase' => get_option('atw_semantic_api_base_url', ATW_SEMANTIC_API_BASE),
-            'threshold' => get_option('atw_semantic_threshold', 0.5),
-            'recommendedJobsCount' => get_option('atw_semantic_recommended_jobs_count', 10),
+            'apiBase' => !empty($api_base) ? $api_base : ATW_SEMANTIC_API_BASE,
+            'threshold' => !empty($threshold) ? $threshold : 0.5,
+            'recommendedJobsCount' => !empty($recommended_jobs) ? $recommended_jobs : 10,
             'nonce' => wp_create_nonce('atw_semantic_nonce'),
         ));
     }
@@ -317,8 +375,11 @@ class ATW_Semantic_Search_Resume {
     public function handle_resume_upload() {
         check_ajax_referer('atw_semantic_nonce', 'nonce');
         
-        $api_key = get_option('atw_semantic_api_key');
-        $api_base = get_option('atw_semantic_api_base_url', ATW_SEMANTIC_API_BASE);
+        $api_key = $this->get_setting('api_key');
+        $api_base = $this->get_setting('api_base_url');
+        if (empty($api_base)) {
+            $api_base = ATW_SEMANTIC_API_BASE;
+        }
         
         if (empty($api_key)) {
             wp_send_json_error(array('message' => 'API key not configured. Please check plugin settings.'));
@@ -350,9 +411,15 @@ class ATW_Semantic_Search_Resume {
         // Get email from request
         $email = isset($_POST['email']) ? sanitize_email($_POST['email']) : '';
         
-        // Get threshold and limit from settings
-        $threshold = get_option('atw_semantic_threshold', 0.5);
-        $limit = get_option('atw_semantic_recommended_jobs_count', 10);
+        // Get threshold and limit from settings (with fallback defaults)
+        $threshold = $this->get_setting('threshold');
+        if (empty($threshold)) {
+            $threshold = 0.5;
+        }
+        $limit = $this->get_setting('recommended_jobs_count');
+        if (empty($limit)) {
+            $limit = 10;
+        }
         
         // Prepare file for upload
         $boundary = wp_generate_password(12, false);
@@ -388,7 +455,7 @@ class ATW_Semantic_Search_Resume {
                 'Content-Type' => 'multipart/form-data; boundary=' . $boundary,
             ),
             'timeout' => 60,
-            'sslverify' => false,
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
         if (is_wp_error($response)) {
@@ -430,8 +497,11 @@ class ATW_Semantic_Search_Resume {
     public function handle_get_jobs() {
         check_ajax_referer('atw_semantic_nonce', 'nonce');
         
-        $api_key = get_option('atw_semantic_api_key');
-        $api_base = get_option('atw_semantic_api_base_url', ATW_SEMANTIC_API_BASE);
+        $api_key = $this->get_setting('api_key');
+        $api_base = $this->get_setting('api_base_url');
+        if (empty($api_base)) {
+            $api_base = ATW_SEMANTIC_API_BASE;
+        }
         
         if (empty($api_key)) {
             wp_send_json_error(array('message' => 'API key not configured.'));
@@ -443,7 +513,7 @@ class ATW_Semantic_Search_Resume {
                 'X-API-Key' => $api_key,
             ),
             'timeout' => 30,
-            'sslverify' => false,
+            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
         if (is_wp_error($response)) {
