@@ -205,9 +205,10 @@ app.post('/api/generate-dummy-jobs', authenticateApiKey, async (req, res) => {
 app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
   try {
     const clientId = req.client.id;
-    const { db_host, db_port, db_name, db_user, db_password, table_prefix } = req.body;
+    let { db_host, db_port, db_name, db_user, db_password, table_prefix } = req.body;
     
     console.log(`[API] Sync WordPress jobs request - Client ID: ${clientId}`);
+    console.log(`[API] Original DB Host: ${db_host}`);
     
     if (!clientId) {
       return res.status(400).json({ 
@@ -223,13 +224,47 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
       });
     }
     
+    // Handle Docker database host resolution
+    // If db_host is a Docker service name (db, mysql, mariadb), resolve to accessible host
+    if (db_host === 'db' || db_host === 'mysql' || db_host === 'mariadb') {
+      // Check if host contains port
+      if (db_host.includes(':')) {
+        const parts = db_host.split(':');
+        db_host = parts[0];
+        db_port = parts[1] || db_port || 3306;
+      }
+      
+      console.log(`[API] Resolving Docker DB host "${db_host}" to accessible address...`);
+      
+      // Use localhost - Docker port mapping exposes MySQL to host
+      db_host = 'localhost';
+      
+      // If port is 3306 (internal Docker port), change to 3307 (host mapped port)
+      // Based on docker-compose.yml: "3307:3306" mapping
+      if (parseInt(db_port) === 3306) {
+        db_port = 3307;
+        console.log(`[API] Using localhost:3307 for database connection (Docker port mapping)`);
+      } else {
+        console.log(`[API] Using localhost:${db_port} for database connection`);
+      }
+    }
+    
+    // Extract port from host if present
+    if (db_host.includes(':')) {
+      const parts = db_host.split(':');
+      db_host = parts[0];
+      db_port = parseInt(parts[1]) || db_port || 3306;
+    }
+    
     const wpDbConfig = {
       host: db_host,
-      port: db_port || 3306, // MySQL default port
+      port: parseInt(db_port) || 3306,
       database: db_name,
       user: db_user,
       password: db_password,
     };
+    
+    console.log(`[API] Connecting to MySQL: ${wpDbConfig.host}:${wpDbConfig.port}/${wpDbConfig.database}`);
     
     const result = await wordpressJobService.syncJobsFromWordPress(
       clientId,
@@ -245,9 +280,25 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
     });
   } catch (err) {
     console.error('[API] Error syncing WordPress jobs:', err);
+    console.error('[API] Error details:', {
+      message: err.message,
+      code: err.code,
+      errno: err.errno,
+      sqlState: err.sqlState
+    });
+    
+    // Provide helpful error message for connection issues
+    let errorMessage = err.message;
+    if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
+      errorMessage = `Cannot connect to WordPress database at ${req.body.db_host}:${req.body.db_port || 3306}. ` +
+        `If WordPress is in Docker, make sure the database port is exposed to the host machine. ` +
+        `Try using 'localhost' instead of Docker service names like 'db' or 'mysql'.`;
+    }
+    
     res.status(500).json({
       error: 'Failed to sync WordPress jobs',
-      message: err.message
+      message: errorMessage,
+      originalError: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });

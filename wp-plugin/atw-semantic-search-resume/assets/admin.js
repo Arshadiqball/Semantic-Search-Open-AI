@@ -35,16 +35,25 @@
                     
                     if (response.success) {
                         var count = response.data.count || 0;
-                        $message.html(
-                            '<div class="notice notice-success is-dismissible"><p><strong>Success!</strong> ' +
-                            'Successfully generated ' + count + ' dummy jobs. You can now test the resume matching functionality.</p></div>'
-                        );
+                        var message = '<div class="notice notice-success is-dismissible"><p><strong>Success!</strong> ';
+                        message += 'Successfully generated ' + count + ' dummy jobs in WordPress database. ';
+                        message += 'Click "Sync Jobs to Node.js Server" to process them for semantic search.</p></div>';
+                        $message.html(message);
+                        
+                        // Update jobs count
+                        var currentCount = parseInt($('#atw_wp_jobs_count').text()) || 0;
+                        $('#atw_wp_jobs_count').text(currentCount + count);
                     } else {
                         var errorMsg = response.data && response.data.message ? response.data.message : 'Unknown error occurred';
-                        $message.html(
-                            '<div class="notice notice-error is-dismissible"><p><strong>Error:</strong> ' +
-                            errorMsg + '</p></div>'
-                        );
+                        var errorHtml = '<div class="notice notice-error is-dismissible"><p><strong>Error:</strong> ' + errorMsg + '</p></div>';
+                        if (response.data && response.data.errors && response.data.errors.length > 0) {
+                            errorHtml += '<ul style="margin-left: 20px;">';
+                            response.data.errors.forEach(function(err) {
+                                errorHtml += '<li>' + err + '</li>';
+                            });
+                            errorHtml += '</ul>';
+                        }
+                        $message.html(errorHtml);
                     }
                 },
                 error: function(xhr, status, error) {

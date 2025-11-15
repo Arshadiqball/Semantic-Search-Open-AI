@@ -186,20 +186,50 @@ $common_tech_stack = array(
                     </p>
                 </div>
                 
+                <!-- WordPress Jobs Management -->
+                <div class="atw-semantic-section">
+                    <h2><?php _e('WordPress Jobs Management', 'atw-semantic-search'); ?></h2>
+                    <p class="description">
+                        <?php _e('Your jobs are stored in the WordPress database table: <code>wp_jobs</code>. Sync these jobs to the Node.js server for semantic search processing.', 'atw-semantic-search'); ?>
+                    </p>
+                    
+                    <?php
+                    require_once(plugin_dir_path(__FILE__) . '../includes/class-jobs-manager.php');
+                    $jobs_count = ATW_Jobs_Manager::get_jobs_count('active');
+                    ?>
+                    <p>
+                        <strong><?php _e('Active Jobs in WordPress:', 'atw-semantic-search'); ?></strong> 
+                        <span id="atw_wp_jobs_count"><?php echo esc_html($jobs_count); ?></span>
+                    </p>
+                    
+                    <p>
+                        <button type="button" 
+                                id="atw_sync_wordpress_jobs_btn" 
+                                class="button button-primary"
+                                data-nonce="<?php echo wp_create_nonce('atw_semantic_nonce'); ?>">
+                            <span class="dashicons dashicons-update" style="vertical-align: middle;"></span>
+                            <?php _e('Sync Jobs to Node.js Server', 'atw-semantic-search'); ?>
+                        </button>
+                        <span id="atw_sync_jobs_status" style="margin-left: 10px;"></span>
+                    </p>
+                    
+                    <div id="atw_sync_jobs_message" style="margin-top: 10px;"></div>
+                </div>
+                
                 <!-- Generate Dummy Jobs -->
                 <div class="atw-semantic-section">
-                    <h2><?php _e('Generate Dummy Jobs', 'atw-semantic-search'); ?></h2>
+                    <h2><?php _e('Generate Dummy Jobs (Testing)', 'atw-semantic-search'); ?></h2>
                     <p class="description">
-                        <?php _e('Generate 100 dummy jobs for testing the semantic search model. These jobs will be created in your client database and can be used to test resume matching.', 'atw-semantic-search'); ?>
+                        <?php _e('Generate 100 dummy jobs for testing the semantic search model. These jobs will be created in your WordPress database (wp_jobs table).', 'atw-semantic-search'); ?>
                     </p>
                     
                     <p>
                         <button type="button" 
                                 id="atw_generate_dummy_jobs_btn" 
-                                class="button button-primary"
+                                class="button button-secondary"
                                 data-nonce="<?php echo wp_create_nonce('atw_semantic_nonce'); ?>">
                             <span class="dashicons dashicons-admin-generic" style="vertical-align: middle;"></span>
-                            <?php _e('Generate 100 Dummy Jobs', 'atw-semantic-search'); ?>
+                            <?php _e('Generate 100 Dummy Jobs in WordPress', 'atw-semantic-search'); ?>
                         </button>
                         <span id="atw_dummy_jobs_status" style="margin-left: 10px;"></span>
                     </p>

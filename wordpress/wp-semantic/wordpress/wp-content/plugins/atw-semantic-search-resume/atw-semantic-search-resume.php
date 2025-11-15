@@ -67,6 +67,7 @@ class ATW_Semantic_Search_Resume {
         add_action('wp_ajax_atw_get_jobs', array($this, 'handle_get_jobs'));
         add_action('wp_ajax_nopriv_atw_get_jobs', array($this, 'handle_get_jobs'));
         add_action('wp_ajax_atw_generate_dummy_jobs', array($this, 'handle_generate_dummy_jobs'));
+        add_action('wp_ajax_atw_sync_wordpress_jobs', array($this, 'handle_sync_wordpress_jobs'));
     }
     
     /**
@@ -75,6 +76,10 @@ class ATW_Semantic_Search_Resume {
     public function activate() {
         // Create custom database table for plugin settings
         $this->create_settings_table();
+        
+        // Create wp_jobs table
+        require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
+        ATW_Jobs_Manager::create_jobs_table();
         
         // Flush rewrite rules if needed
         flush_rewrite_rules();
@@ -552,8 +557,200 @@ class ATW_Semantic_Search_Resume {
     
     /**
      * Handle generate dummy jobs via AJAX
+     * Creates jobs directly in WordPress wp_jobs table
      */
     public function handle_generate_dummy_jobs() {
+        check_ajax_referer('atw_semantic_nonce', 'nonce');
+        
+        // Check user permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+            return;
+        }
+        
+        require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
+        
+        $count = isset($_POST['count']) ? intval($_POST['count']) : 100;
+        if ($count < 1 || $count > 500) {
+            $count = 100;
+        }
+        
+        // Job templates
+        $job_templates = array(
+            array(
+                'title' => 'Senior Full Stack Developer',
+                'company' => 'TechCorp',
+                'description' => 'We are looking for an experienced Full Stack Developer to join our team. You will be responsible for developing and maintaining web applications using modern technologies.',
+                'required_skills' => 'JavaScript,React,Node.js,PostgreSQL,REST APIs',
+                'preferred_skills' => 'TypeScript,AWS,Docker,GraphQL',
+                'experience_years' => 5,
+                'location' => 'San Francisco, CA',
+                'salary_range' => '$120,000 - $180,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'Frontend Developer',
+                'company' => 'WebSolutions Inc',
+                'description' => 'Join our frontend team to build beautiful and responsive user interfaces. Work with cutting-edge technologies and collaborate with designers and backend developers.',
+                'required_skills' => 'React,TypeScript,CSS,HTML,JavaScript',
+                'preferred_skills' => 'Vue.js,Next.js,Tailwind CSS,Redux',
+                'experience_years' => 3,
+                'location' => 'New York, NY',
+                'salary_range' => '$90,000 - $130,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'Backend Developer',
+                'company' => 'CloudTech',
+                'description' => 'We need a skilled Backend Developer to design and implement scalable server-side applications. Experience with microservices architecture is a plus.',
+                'required_skills' => 'Python,Django,PostgreSQL,REST APIs,Linux',
+                'preferred_skills' => 'FastAPI,Redis,Kubernetes,Docker,AWS',
+                'experience_years' => 4,
+                'location' => 'Austin, TX',
+                'salary_range' => '$100,000 - $150,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'DevOps Engineer',
+                'company' => 'Infrastructure Pro',
+                'description' => 'Looking for a DevOps Engineer to manage our cloud infrastructure and CI/CD pipelines. Help us scale our systems efficiently.',
+                'required_skills' => 'AWS,Docker,Kubernetes,CI/CD,Linux',
+                'preferred_skills' => 'Terraform,Ansible,Jenkins,GitLab CI,Monitoring',
+                'experience_years' => 4,
+                'location' => 'Seattle, WA',
+                'salary_range' => '$110,000 - $160,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'Data Scientist',
+                'company' => 'DataAnalytics Co',
+                'description' => 'Join our data science team to build machine learning models and analyze large datasets. Work on exciting projects that drive business decisions.',
+                'required_skills' => 'Python,Machine Learning,SQL,Pandas,NumPy',
+                'preferred_skills' => 'TensorFlow,PyTorch,Spark,Jupyter,Statistics',
+                'experience_years' => 3,
+                'location' => 'Boston, MA',
+                'salary_range' => '$95,000 - $140,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'Mobile App Developer',
+                'company' => 'MobileFirst',
+                'description' => 'We are seeking a Mobile App Developer to create native and cross-platform mobile applications. Work on iOS and Android platforms.',
+                'required_skills' => 'React Native,JavaScript,iOS,Android,REST APIs',
+                'preferred_skills' => 'Swift,Kotlin,Flutter,Firebase,App Store',
+                'experience_years' => 3,
+                'location' => 'Los Angeles, CA',
+                'salary_range' => '$85,000 - $125,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'UI/UX Designer',
+                'company' => 'DesignStudio',
+                'description' => 'Looking for a creative UI/UX Designer to design user-friendly interfaces and improve user experience across our products.',
+                'required_skills' => 'Figma,Adobe XD,User Research,Wireframing,Prototyping',
+                'preferred_skills' => 'Sketch,InVision,HTML/CSS,Design Systems,Accessibility',
+                'experience_years' => 2,
+                'location' => 'Portland, OR',
+                'salary_range' => '$70,000 - $100,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'Product Manager',
+                'company' => 'ProductLab',
+                'description' => 'We need an experienced Product Manager to lead product development, work with cross-functional teams, and drive product strategy.',
+                'required_skills' => 'Product Strategy,Agile,Stakeholder Management,Analytics,Roadmapping',
+                'preferred_skills' => 'SQL,A/B Testing,User Research,Technical Background,Scrum',
+                'experience_years' => 5,
+                'location' => 'Chicago, IL',
+                'salary_range' => '$100,000 - $150,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'QA Engineer',
+                'company' => 'QualityAssurance Ltd',
+                'description' => 'Join our QA team to ensure software quality through comprehensive testing. Write test cases and automate testing processes.',
+                'required_skills' => 'Testing,Selenium,Python,Test Automation,Bug Tracking',
+                'preferred_skills' => 'Cypress,Jest,API Testing,Performance Testing,CI/CD',
+                'experience_years' => 2,
+                'location' => 'Denver, CO',
+                'salary_range' => '$65,000 - $95,000',
+                'employment_type' => 'Full-time',
+            ),
+            array(
+                'title' => 'Security Engineer',
+                'company' => 'SecureTech',
+                'description' => 'We are looking for a Security Engineer to protect our systems and applications from security threats. Conduct security audits and implement security measures.',
+                'required_skills' => 'Security,Penetration Testing,Linux,Network Security,OWASP',
+                'preferred_skills' => 'AWS Security,Kubernetes Security,SIEM,Compliance,Incident Response',
+                'experience_years' => 4,
+                'location' => 'Washington, DC',
+                'salary_range' => '$110,000 - $160,000',
+                'employment_type' => 'Full-time',
+            ),
+        );
+        
+        $variations = array('Senior', 'Lead', 'Principal', 'Mid-level', 'Junior', 'Associate');
+        $companies = array('TechCorp', 'WebSolutions Inc', 'CloudTech', 'Infrastructure Pro', 'DataAnalytics Co', 'MobileFirst', 'DesignStudio', 'ProductLab', 'QualityAssurance Ltd', 'SecureTech', 'InnovationHub', 'StartupXYZ');
+        $locations = array('San Francisco, CA', 'New York, NY', 'Austin, TX', 'Seattle, WA', 'Boston, MA', 'Los Angeles, CA', 'Portland, OR', 'Chicago, IL', 'Denver, CO', 'Washington, DC', 'Remote', 'Hybrid');
+        $salary_ranges = array('$80,000 - $120,000', '$90,000 - $130,000', '$100,000 - $150,000', '$110,000 - $160,000', '$120,000 - $180,000', '$130,000 - $200,000');
+        
+        $created = 0;
+        $errors = array();
+        
+        for ($i = 0; $i < $count; $i++) {
+            try {
+                $template = $job_templates[$i % count($job_templates)];
+                $variation = $variations[$i % count($variations)];
+                $company = $companies[$i % count($companies)];
+                $location = $locations[$i % count($locations)];
+                $salary = $salary_ranges[$i % count($salary_ranges)];
+                
+                // Add variation to title if not already present
+                $title = $template['title'];
+                if (strpos($title, $variation) === false) {
+                    $title = $variation . ' ' . $title;
+                }
+                
+                $job_data = array(
+                    'title' => $title,
+                    'company' => $company,
+                    'description' => $template['description'],
+                    'required_skills' => $template['required_skills'],
+                    'preferred_skills' => $template['preferred_skills'],
+                    'experience_years' => $template['experience_years'] + ($i % 3) - 1,
+                    'location' => $location,
+                    'salary_range' => $salary,
+                    'employment_type' => $template['employment_type'],
+                    'status' => 'active',
+                );
+                
+                $job_id = ATW_Jobs_Manager::save_job($job_data);
+                if ($job_id) {
+                    $created++;
+                }
+            } catch (Exception $e) {
+                $errors[] = 'Error creating job ' . ($i + 1) . ': ' . $e->getMessage();
+            }
+        }
+        
+        if ($created > 0) {
+            wp_send_json_success(array(
+                'count' => $created,
+                'message' => "Successfully generated {$created} dummy jobs in WordPress database.",
+                'errors' => $errors
+            ));
+        } else {
+            wp_send_json_error(array(
+                'message' => 'Failed to generate jobs. ' . (!empty($errors) ? implode('; ', $errors) : 'Unknown error.'),
+                'errors' => $errors
+            ));
+        }
+    }
+    
+    /**
+     * Handle sync WordPress jobs via AJAX
+     */
+    public function handle_sync_wordpress_jobs() {
         check_ajax_referer('atw_semantic_nonce', 'nonce');
         
         // Check user permissions
@@ -573,19 +770,25 @@ class ATW_Semantic_Search_Resume {
             return;
         }
         
-        $count = isset($_POST['count']) ? intval($_POST['count']) : 100;
-        if ($count < 1 || $count > 500) {
-            $count = 100;
-        }
+        // Get WordPress database credentials
+        global $wpdb;
+        $db_config = array(
+            'db_host' => DB_HOST,
+            'db_port' => 3306, // MySQL default, adjust if needed
+            'db_name' => DB_NAME,
+            'db_user' => DB_USER,
+            'db_password' => DB_PASSWORD,
+            'table_prefix' => $wpdb->prefix,
+        );
         
-        $response = wp_remote_post($api_base . '/api/generate-dummy-jobs', array(
+        $response = wp_remote_post($api_base . '/api/sync-wordpress-jobs', array(
             'headers' => array(
                 'X-API-Key' => $api_key,
                 'Content-Type' => 'application/json',
             ),
-            'body' => json_encode(array('count' => $count)),
-            'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
-            'timeout' => 300, // 5 minutes timeout for generating jobs
+            'body' => json_encode($db_config),
+            'sslverify' => false,
+            'timeout' => 300,
         ));
         
         if (is_wp_error($response)) {
@@ -601,7 +804,7 @@ class ATW_Semantic_Search_Resume {
             wp_send_json_success($data);
         } else {
             $error_data = json_decode($body, true);
-            $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to generate dummy jobs';
+            $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to sync WordPress jobs';
             wp_send_json_error(array('message' => $error_message));
         }
     }
