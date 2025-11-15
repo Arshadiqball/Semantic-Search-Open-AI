@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
 import embeddingService from './embeddingService.js';
+import wordpressJobService from './wordpressJobService.js';
+import clientService from './clientService.js';
 
 class JobMatchingService {
   /**
@@ -261,35 +263,61 @@ class JobMatchingService {
       const parsedData = resume.parsed_data;
       const resumeEmbedding = resume.embedding;
 
-      // Get all jobs for this client (tenant-aware)
-      const jobQuery = `
+      // Get all job embeddings for this client (tenant-aware)
+      // Jobs are stored in WordPress, only embeddings in Node.js
+      const embeddingQuery = `
         SELECT 
-          id,
-          title,
-          company,
-          description,
-          required_skills,
-          preferred_skills,
-          experience_years,
-          location,
-          salary_range,
-          employment_type,
+          wp_job_id,
           embedding
-        FROM jobs
+        FROM job_embeddings
         WHERE client_id = $1;
       `;
 
-      const jobResult = await pool.query(jobQuery, [clientId]);
+      const embeddingResult = await pool.query(embeddingQuery, [clientId]);
 
-      // Calculate similarity scores for all jobs
-      const jobsWithScores = jobResult.rows
-        .map(job => {
-          const similarity = this.cosineSimilarity(resumeEmbedding, job.embedding);
-          return { ...job, similarity_score: similarity };
+      if (embeddingResult.rows.length === 0) {
+        console.log('⚠️ No job embeddings found for this client');
+        return [];
+      }
+
+      // Calculate similarity scores for all embeddings
+      const embeddingsWithScores = embeddingResult.rows
+        .map(row => {
+          const similarity = this.cosineSimilarity(resumeEmbedding, row.embedding);
+          return { 
+            wp_job_id: row.wp_job_id, 
+            similarity_score: similarity,
+            embedding: row.embedding // Keep for AI analysis
+          };
         })
-        .filter(job => job.similarity_score >= threshold)
+        .filter(item => item.similarity_score >= threshold)
         .sort((a, b) => b.similarity_score - a.similarity_score)
         .slice(0, limit * 2); // Get more candidates for AI analysis
+
+      // Get client's WordPress database configuration
+      const dbConfig = await clientService.getClientDbConfig(clientId);
+      
+      if (!dbConfig) {
+        throw new Error('WordPress database configuration not found. Please re-register the client.');
+      }
+
+      // Fetch actual job data from WordPress database
+      const wpJobIds = embeddingsWithScores.map(item => item.wp_job_id);
+      const wpJobs = await wordpressJobService.fetchJobsByIds(
+        dbConfig,
+        dbConfig.tablePrefix,
+        wpJobIds
+      );
+
+      // Map WordPress jobs with their similarity scores
+      const jobsWithScores = wpJobs.map(wpJob => {
+        const embeddingData = embeddingsWithScores.find(e => e.wp_job_id === String(wpJob.id));
+        return {
+          ...wpJob,
+          similarity_score: embeddingData.similarity_score,
+          embedding: embeddingData.embedding, // For AI analysis
+        };
+      });
 
       // Enhance matches with AI-powered skill analysis
       const enhancedMatches = await Promise.all(
@@ -311,7 +339,7 @@ class JobMatchingService {
           );
 
           return {
-            jobId: job.id,
+            jobId: job.id, // WordPress job ID
             title: job.title,
             company: job.company,
             description: job.description,
@@ -394,36 +422,68 @@ class JobMatchingService {
    */
   async getStoredMatches(resumeId, clientId, limit = 10) {
     try {
+      // Get stored match records (job_id now stores wp_job_id)
       const query = `
         SELECT 
           jm.id,
           jm.similarity_score,
           jm.matched_skills,
           jm.created_at,
-          j.id as job_id,
-          j.title,
-          j.company,
-          j.description,
-          j.required_skills,
-          j.preferred_skills,
-          j.experience_years,
-          j.location,
-          j.salary_range,
-          j.employment_type
+          jm.job_id as wp_job_id
         FROM job_matches jm
-        JOIN jobs j ON jm.job_id = j.id
         WHERE jm.resume_id = $1 
           AND jm.client_id = $2
-          AND j.client_id = $2
         ORDER BY jm.similarity_score DESC, jm.created_at DESC
         LIMIT $3;
       `;
 
       const result = await pool.query(query, [resumeId, clientId, limit]);
-      return result.rows;
+      
+      if (result.rows.length === 0) {
+        return [];
+      }
+
+      // Get client's WordPress database configuration
+      const dbConfig = await clientService.getClientDbConfig(clientId);
+      
+      if (!dbConfig) {
+        console.error('WordPress database configuration not found for cached matches');
+        return [];
+      }
+
+      // Fetch actual job data from WordPress database
+      const wpJobIds = result.rows.map(row => String(row.wp_job_id));
+      const wpJobs = await wordpressJobService.fetchJobsByIds(
+        dbConfig,
+        dbConfig.tablePrefix,
+        wpJobIds
+      );
+
+      // Map WordPress jobs with stored match data
+      return result.rows.map(row => {
+        const wpJob = wpJobs.find(job => String(job.id) === String(row.wp_job_id));
+        if (!wpJob) {
+          return null; // Job might have been deleted from WordPress
+        }
+        return {
+          job_id: wpJob.id,
+          title: wpJob.title,
+          company: wpJob.company,
+          description: wpJob.description,
+          required_skills: wpJob.required_skills,
+          preferred_skills: wpJob.preferred_skills,
+          experience_years: wpJob.experience_years,
+          location: wpJob.location,
+          salary_range: wpJob.salary_range,
+          employment_type: wpJob.employment_type,
+          similarity_score: row.similarity_score,
+          matched_skills: row.matched_skills,
+          created_at: row.created_at,
+        };
+      }).filter(match => match !== null); // Remove null entries
     } catch (error) {
       console.error('Error getting stored matches:', error);
-      throw new Error('Failed to get stored matches: ' + error.message);
+      return [];
     }
   }
 }

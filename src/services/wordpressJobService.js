@@ -76,7 +76,7 @@ class WordPressJobService {
 
   /**
    * Process WordPress jobs and generate embeddings
-   * Stores embeddings in Node.js server for semantic search
+   * Stores ONLY embeddings in Node.js (jobs remain in WordPress)
    * @param {Array} jobs - Jobs from WordPress
    * @param {number} clientId - Client ID in Node.js system
    * @param {Object} nodejsPool - Node.js database pool
@@ -85,6 +85,7 @@ class WordPressJobService {
   async processWordPressJobs(jobs, clientId, nodejsPool) {
     try {
       console.log(`[WordPress Jobs] Processing ${jobs.length} jobs for client ${clientId}...`);
+      console.log(`[WordPress Jobs] Storing only embeddings - jobs remain in WordPress database`);
       
       let processed = 0;
       let updated = 0;
@@ -98,65 +99,36 @@ class WordPressJobService {
           // Generate embedding
           const embedding = await embeddingService.createEmbedding(jobText);
 
-          // Check if job already exists in Node.js DB (by WordPress job ID)
+          // Check if embedding already exists (by WordPress job ID)
           const checkQuery = await nodejsPool.query(
-            `SELECT id FROM jobs WHERE wp_job_id = $1 AND client_id = $2`,
-            [job.id, clientId]
+            `SELECT id FROM job_embeddings WHERE wp_job_id = $1 AND client_id = $2`,
+            [String(job.id), clientId]
           );
 
           if (checkQuery.rows.length > 0) {
-            // Update existing job
+            // Update existing embedding
             await nodejsPool.query(`
-              UPDATE jobs SET
-                title = $1,
-                company = $2,
-                description = $3,
-                required_skills = $4,
-                preferred_skills = $5,
-                experience_years = $6,
-                location = $7,
-                salary_range = $8,
-                employment_type = $9,
-                embedding = $10,
+              UPDATE job_embeddings SET
+                embedding = $1,
                 updated_at = CURRENT_TIMESTAMP
-              WHERE wp_job_id = $11 AND client_id = $12
+              WHERE wp_job_id = $2 AND client_id = $3
             `, [
-              job.title,
-              job.company,
-              job.description,
-              job.required_skills,
-              job.preferred_skills || null,
-              job.experience_years,
-              job.location,
-              job.salary_range,
-              job.employment_type,
               JSON.stringify(embedding),
-              job.id,
+              String(job.id),
               clientId,
             ]);
             updated++;
           } else {
-            // Insert new job
+            // Insert new embedding (only embedding, not full job data)
             await nodejsPool.query(`
-              INSERT INTO jobs (
-                title, company, description, required_skills, preferred_skills,
-                experience_years, location, salary_range, employment_type, 
-                embedding, client_id, wp_job_id
+              INSERT INTO job_embeddings (
+                wp_job_id, client_id, embedding
               )
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              VALUES ($1, $2, $3)
             `, [
-              job.title,
-              job.company,
-              job.description,
-              job.required_skills,
-              job.preferred_skills || null,
-              job.experience_years,
-              job.location,
-              job.salary_range,
-              job.employment_type,
-              JSON.stringify(embedding),
+              String(job.id), // WordPress job ID
               clientId,
-              job.id, // Store WordPress job ID for reference
+              JSON.stringify(embedding),
             ]);
             created++;
           }
@@ -164,7 +136,7 @@ class WordPressJobService {
           processed++;
           
           if (processed % 10 === 0) {
-            console.log(`  → Processed ${processed}/${jobs.length} jobs...`);
+            console.log(`  → Processed ${processed}/${jobs.length} embeddings...`);
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         } catch (jobError) {
@@ -172,7 +144,7 @@ class WordPressJobService {
         }
       }
 
-      console.log(`✅ Processed ${processed} jobs: ${created} created, ${updated} updated`);
+      console.log(`✅ Processed ${processed} embeddings: ${created} created, ${updated} updated`);
       
       return {
         success: true,
@@ -184,6 +156,66 @@ class WordPressJobService {
     } catch (error) {
       console.error('Error processing WordPress jobs:', error);
       throw new Error('Failed to process WordPress jobs: ' + error.message);
+    }
+  }
+  
+  /**
+   * Fetch job details from WordPress database by IDs
+   * @param {Object} dbConfig - WordPress database config
+   * @param {string} tablePrefix - WordPress table prefix
+   * @param {Array<string>} jobIds - Array of WordPress job IDs
+   * @returns {Promise<Array>} Array of job objects
+   */
+  async fetchJobsByIds(dbConfig, tablePrefix, jobIds) {
+    if (!jobIds || jobIds.length === 0) {
+      return [];
+    }
+    
+    let connection;
+    try {
+      connection = await this.connectToWordPressDB(dbConfig);
+      const tableName = `${tablePrefix}jobs`;
+      
+      // Create placeholders for IN clause
+      const placeholders = jobIds.map(() => '?').join(',');
+      
+      const query = `
+        SELECT id, title, company, description, required_skills, preferred_skills,
+               experience_years, location, salary_range, employment_type, status
+        FROM ?? 
+        WHERE id IN (${placeholders}) AND (status = 'active' OR status IS NULL)
+        ORDER BY FIELD(id, ${placeholders});
+      `;
+      
+      const [rows] = await connection.execute(query, [tableName, ...jobIds, ...jobIds]);
+      
+      return rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        company: row.company,
+        description: row.description,
+        required_skills: row.required_skills 
+          ? (Array.isArray(row.required_skills) 
+              ? row.required_skills 
+              : row.required_skills.split(',').map(s => s.trim()).filter(s => s))
+          : [],
+        preferred_skills: row.preferred_skills
+          ? (Array.isArray(row.preferred_skills)
+              ? row.preferred_skills
+              : row.preferred_skills.split(',').map(s => s.trim()).filter(s => s))
+          : [],
+        experience_years: row.experience_years,
+        location: row.location,
+        salary_range: row.salary_range,
+        employment_type: row.employment_type || 'Full-time',
+      }));
+    } catch (error) {
+      console.error('Error fetching jobs from WordPress:', error);
+      throw new Error('Failed to fetch jobs from WordPress database: ' + error.message);
+    } finally {
+      if (connection) {
+        await connection.end();
+      }
     }
   }
 
