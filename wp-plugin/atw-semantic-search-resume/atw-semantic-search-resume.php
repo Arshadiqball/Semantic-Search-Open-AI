@@ -44,7 +44,16 @@ class ATW_Semantic_Search_Resume {
     }
     
     private function __construct() {
+        // Load required classes
+        $this->load_dependencies();
         $this->init_hooks();
+    }
+    
+    /**
+     * Load plugin dependencies
+     */
+    private function load_dependencies() {
+        require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
     }
     
     private function init_hooks() {
@@ -220,6 +229,9 @@ class ATW_Semantic_Search_Resume {
             'db_password' => DB_PASSWORD,
             'table_prefix' => $wpdb->prefix,
         );
+        
+        // Load Jobs Manager class
+        require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
         
         // Fetch all jobs from WordPress database to send to Node.js server
         $jobs = array();
@@ -827,29 +839,56 @@ class ATW_Semantic_Search_Resume {
      * Fetches jobs from WordPress and sends them to Node.js server
      */
     public function handle_sync_wordpress_jobs() {
-        check_ajax_referer('atw_semantic_nonce', 'nonce');
-        
-        // Check user permissions
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => 'Insufficient permissions.'));
-            return;
-        }
-        
-        $api_key = $this->get_setting('api_key');
-        $api_base = $this->get_setting('api_base_url');
-        if (empty($api_base)) {
-            $api_base = ATW_SEMANTIC_API_BASE;
-        }
-        
-        if (empty($api_key)) {
-            wp_send_json_error(array('message' => 'API key not configured. Please register with API first.'));
-            return;
-        }
-        
-        // Fetch all jobs from WordPress database
-        $jobs = array();
         try {
-            $wp_jobs = ATW_Jobs_Manager::get_jobs();
+            error_log('ATW Semantic: ========== SYNC JOBS STARTED ==========');
+            
+            check_ajax_referer('atw_semantic_nonce', 'nonce');
+            
+            // Check user permissions
+            if (!current_user_can('manage_options')) {
+                error_log('ATW Semantic: Permission denied');
+                wp_send_json_error(array('message' => 'Insufficient permissions.'));
+                return;
+            }
+            
+            // Ensure Jobs Manager class is loaded
+            if (!class_exists('ATW_Jobs_Manager')) {
+                $jobs_manager_file = plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php';
+                error_log('ATW Semantic: Loading Jobs Manager from: ' . $jobs_manager_file);
+                if (file_exists($jobs_manager_file)) {
+                    require_once($jobs_manager_file);
+                    error_log('ATW Semantic: Jobs Manager class loaded successfully');
+                } else {
+                    error_log('ATW Semantic: ERROR - Jobs Manager file not found at: ' . $jobs_manager_file);
+                    wp_send_json_error(array('message' => 'Jobs Manager class file not found. Please reinstall the plugin.'));
+                    return;
+                }
+            } else {
+                error_log('ATW Semantic: Jobs Manager class already exists');
+            }
+            
+            $api_key = $this->get_setting('api_key');
+            $api_base = $this->get_setting('api_base_url');
+            if (empty($api_base)) {
+                $api_base = ATW_SEMANTIC_API_BASE;
+            }
+            
+            error_log('ATW Semantic: API Base: ' . $api_base);
+            error_log('ATW Semantic: API Key: ' . (empty($api_key) ? 'NOT SET' : substr($api_key, 0, 10) . '...'));
+            
+            if (empty($api_key)) {
+                error_log('ATW Semantic: API key not configured');
+                wp_send_json_error(array('message' => 'API key not configured. Please register with API first.'));
+                return;
+            }
+            
+            // Fetch all jobs from WordPress database
+            $jobs = array();
+            try {
+                error_log('ATW Semantic: Calling ATW_Jobs_Manager::get_jobs()...');
+                $wp_jobs = ATW_Jobs_Manager::get_jobs();
+                error_log('ATW Semantic: get_jobs() returned: ' . (is_array($wp_jobs) ? count($wp_jobs) . ' jobs' : gettype($wp_jobs)));
+            
             if ($wp_jobs && is_array($wp_jobs)) {
                 foreach ($wp_jobs as $wp_job) {
                     // Handle both object and array formats from get_jobs()
@@ -883,37 +922,80 @@ class ATW_Semantic_Search_Resume {
                     );
                 }
             }
+            
+            error_log('ATW Semantic: Formatted ' . count($jobs) . ' jobs for sync');
+            } catch (Exception $e) {
+                error_log('ATW Semantic: Exception in get_jobs() - ' . $e->getMessage());
+                error_log('ATW Semantic: Exception trace: ' . $e->getTraceAsString());
+                wp_send_json_error(array('message' => 'Error fetching jobs from WordPress: ' . $e->getMessage()));
+                return;
+            } catch (Error $e) {
+                error_log('ATW Semantic: Fatal Error in get_jobs() - ' . $e->getMessage());
+                error_log('ATW Semantic: Error trace: ' . $e->getTraceAsString());
+                wp_send_json_error(array('message' => 'Fatal error fetching jobs: ' . $e->getMessage()));
+                return;
+            }
+            
+            // Log API details before sending
+            $api_url = $api_base . '/api/sync-wordpress-jobs';
+            error_log('ATW Semantic: Syncing jobs to: ' . $api_url);
+            error_log('ATW Semantic: Jobs count: ' . count($jobs));
+            
+            // Send jobs to Node.js server
+            $request_body = json_encode(array('jobs' => $jobs));
+            error_log('ATW Semantic: Request body size: ' . strlen($request_body) . ' bytes');
+            
+            $response = wp_remote_post($api_url, array(
+                'headers' => array(
+                    'X-API-Key' => $api_key,
+                    'Content-Type' => 'application/json',
+                ),
+                'body' => $request_body,
+                'sslverify' => false,
+                'timeout' => 300, // 5 minutes for large job lists
+            ));
+            
+            // Log response details
+            if (is_wp_error($response)) {
+                $error_message = $response->get_error_message();
+                $error_code = $response->get_error_code();
+                error_log('ATW Semantic: wp_remote_post error - ' . $error_message);
+                error_log('ATW Semantic: Error code: ' . $error_code);
+                wp_send_json_error(array('message' => $error_message));
+                return;
+            }
+            
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            
+            error_log('ATW Semantic: Response code: ' . $response_code);
+            error_log('ATW Semantic: Response body: ' . substr($response_body, 0, 500));
+            
+            if ($response_code === 200) {
+                $data = json_decode($response_body, true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    error_log('ATW Semantic: JSON decode error - ' . json_last_error_msg());
+                    wp_send_json_error(array('message' => 'Invalid response from server: ' . json_last_error_msg()));
+                    return;
+                }
+                error_log('ATW Semantic: Sync successful - Processed: ' . (isset($data['processed']) ? $data['processed'] : 0));
+                wp_send_json_success($data);
+            } else {
+                $error_data = json_decode($response_body, true);
+                $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to sync WordPress jobs (HTTP ' . $response_code . ')';
+                error_log('ATW Semantic: Sync failed - ' . $error_message);
+                wp_send_json_error(array('message' => $error_message));
+            }
         } catch (Exception $e) {
-            wp_send_json_error(array('message' => 'Error fetching jobs from WordPress: ' . $e->getMessage()));
-            return;
-        }
-        
-        // Send jobs to Node.js server
-        $response = wp_remote_post($api_base . '/api/sync-wordpress-jobs', array(
-            'headers' => array(
-                'X-API-Key' => $api_key,
-                'Content-Type' => 'application/json',
-            ),
-            'body' => json_encode(array('jobs' => $jobs)), // Send jobs array
-            'sslverify' => false,
-            'timeout' => 300, // 5 minutes for large job lists
-        ));
-        
-        if (is_wp_error($response)) {
-            wp_send_json_error(array('message' => $response->get_error_message()));
-            return;
-        }
-        
-        $response_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        
-        if ($response_code === 200) {
-            $data = json_decode($body, true);
-            wp_send_json_success($data);
-        } else {
-            $error_data = json_decode($body, true);
-            $error_message = isset($error_data['message']) ? $error_data['message'] : 'Failed to sync WordPress jobs';
-            wp_send_json_error(array('message' => $error_message));
+            error_log('ATW Semantic: FATAL EXCEPTION in handle_sync_wordpress_jobs: ' . $e->getMessage());
+            error_log('ATW Semantic: Exception file: ' . $e->getFile() . ':' . $e->getLine());
+            error_log('ATW Semantic: Exception trace: ' . $e->getTraceAsString());
+            wp_send_json_error(array('message' => 'Internal error: ' . $e->getMessage()));
+        } catch (Error $e) {
+            error_log('ATW Semantic: FATAL ERROR in handle_sync_wordpress_jobs: ' . $e->getMessage());
+            error_log('ATW Semantic: Error file: ' . $e->getFile() . ':' . $e->getLine());
+            error_log('ATW Semantic: Error trace: ' . $e->getTraceAsString());
+            wp_send_json_error(array('message' => 'Fatal error: ' . $e->getMessage()));
         }
     }
 }

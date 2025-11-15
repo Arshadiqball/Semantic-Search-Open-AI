@@ -36,6 +36,21 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log(`[Request] Headers:`, {
+    'x-api-key': req.headers['x-api-key'] ? req.headers['x-api-key'].substring(0, 10) + '...' : 'missing',
+    'content-type': req.headers['content-type'],
+    'origin': req.headers['origin'],
+  });
+  if (req.body && Object.keys(req.body).length > 0) {
+    const bodyPreview = JSON.stringify(req.body).substring(0, 200);
+    console.log(`[Request] Body preview:`, bodyPreview);
+  }
+  next();
+});
+
 // Trust proxy to get real IP addresses
 app.set('trust proxy', true);
 
@@ -239,6 +254,11 @@ app.post('/api/generate-dummy-jobs', authenticateApiKey, async (req, res) => {
 // Sync jobs from WordPress - WordPress sends jobs directly
 app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
   try {
+    console.log(`[API] ========== SYNC WORDPRESS JOBS REQUEST ==========`);
+    console.log(`[API] Request received at: ${new Date().toISOString()}`);
+    console.log(`[API] Client ID: ${req.client?.id || 'NOT FOUND'}`);
+    console.log(`[API] Request body keys:`, Object.keys(req.body || {}));
+    
     const clientId = req.client.id;
     const { jobs } = req.body;
     

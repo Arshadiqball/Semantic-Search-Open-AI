@@ -113,7 +113,11 @@ $table_prefix = getenv_docker('WORDPRESS_TABLE_PREFIX', 'wp_');
  *
  * @link https://developer.wordpress.org/advanced-administration/debug/debug-wordpress/
  */
-define( 'WP_DEBUG', !!getenv_docker('WORDPRESS_DEBUG', '') );
+// Enable WordPress debugging
+define( 'WP_DEBUG', true );
+define( 'WP_DEBUG_LOG', true ); // Log errors to wp-content/debug.log
+define( 'WP_DEBUG_DISPLAY', false ); // Don't display errors on frontend (security)
+@ini_set( 'display_errors', 0 ); // Don't display errors
 
 /* Add any custom values between this line and the "stop editing" line. */
 
