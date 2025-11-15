@@ -94,7 +94,7 @@ app.get('/health', (req, res) =>
 // ------------------------------------------------------------
 app.post('/api/admin/clients', async (req, res) => {
   try {
-    const { name, apiUrl, db_config } = req.body;
+    const { name, apiUrl, db_config, jobs } = req.body;
     if (!name) return res.status(400).json({ error: 'Client name is required' });
     
     // Handle database configuration if provided
@@ -118,7 +118,21 @@ app.post('/api/admin/clients', async (req, res) => {
       }
     }
     
+    // Create client
     const client = await clientService.createClient(name, apiUrl, dbConfig);
+    
+    // If jobs are provided, store them in Node.js database
+    if (jobs && Array.isArray(jobs) && jobs.length > 0) {
+      console.log(`[API] Storing ${jobs.length} jobs for client ${client.id} during registration...`);
+      try {
+        await wordpressJobService.processWordPressJobs(jobs, client.id, pool);
+        console.log(`[API] Successfully stored ${jobs.length} jobs for client ${client.id}`);
+      } catch (jobError) {
+        console.error('[API] Error storing jobs during registration:', jobError);
+        // Don't fail registration if jobs fail to store
+      }
+    }
+    
     res.json({ success: true, client });
   } catch (err) {
     console.error('Error creating client:', err);
@@ -222,10 +236,11 @@ app.post('/api/generate-dummy-jobs', authenticateApiKey, async (req, res) => {
   }
 });
 
-// Sync jobs from WordPress database
+// Sync jobs from WordPress - WordPress sends jobs directly
 app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
   try {
     const clientId = req.client.id;
+    const { jobs } = req.body;
     
     console.log(`[API] Sync WordPress jobs request - Client ID: ${clientId}`);
     
@@ -235,24 +250,29 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
       });
     }
     
-    // Get stored database configuration for this client
-    const dbConfig = await clientService.getClientDbConfig(clientId);
-    
-    if (!dbConfig) {
+    // Validate jobs array
+    if (!jobs || !Array.isArray(jobs)) {
       return res.status(400).json({
-        error: 'Database configuration not found',
-        message: 'WordPress database configuration was not provided during client registration. Please re-register the client with database credentials.'
+        error: 'Invalid request',
+        message: 'Jobs array is required'
       });
     }
     
-    console.log(`[API] Using stored DB config: ${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
+    if (jobs.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No jobs to sync',
+        total: 0,
+        processed: 0,
+        created: 0,
+        updated: 0,
+      });
+    }
     
-    const result = await wordpressJobService.syncJobsFromWordPress(
-      clientId,
-      dbConfig,
-      dbConfig.tablePrefix,
-      pool
-    );
+    console.log(`[API] Processing ${jobs.length} jobs from WordPress for client ${clientId}...`);
+    
+    // Process and store jobs in Node.js database
+    const result = await wordpressJobService.processWordPressJobs(jobs, clientId, pool);
     
     console.log(`[API] Successfully synced WordPress jobs:`, result);
     res.json({
@@ -263,22 +283,12 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
     console.error('[API] Error syncing WordPress jobs:', err);
     console.error('[API] Error details:', {
       message: err.message,
-      code: err.code,
-      errno: err.errno,
-      sqlState: err.sqlState
+      stack: err.stack
     });
-    
-    // Provide helpful error message for connection issues
-    let errorMessage = err.message;
-    if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
-      errorMessage = `Cannot connect to WordPress database. ` +
-        `Please verify the database configuration stored during client registration is correct. ` +
-        `You may need to re-register the client with updated database credentials.`;
-    }
     
     res.status(500).json({
       error: 'Failed to sync WordPress jobs',
-      message: errorMessage,
+      message: err.message,
       originalError: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }

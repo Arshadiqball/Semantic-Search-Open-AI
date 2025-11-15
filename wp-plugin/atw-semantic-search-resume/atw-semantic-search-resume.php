@@ -221,17 +221,60 @@ class ATW_Semantic_Search_Resume {
             'table_prefix' => $wpdb->prefix,
         );
         
-        // Register with API (including database configuration)
+        // Fetch all jobs from WordPress database to send to Node.js server
+        $jobs = array();
+        try {
+            $wp_jobs = ATW_Jobs_Manager::get_jobs();
+            if ($wp_jobs && is_array($wp_jobs)) {
+                foreach ($wp_jobs as $wp_job) {
+                    // Handle both object and array formats from get_jobs()
+                    $job_id = is_array($wp_job) ? $wp_job['id'] : $wp_job->id;
+                    $job_title = is_array($wp_job) ? $wp_job['title'] : $wp_job->title;
+                    $job_company = is_array($wp_job) ? $wp_job['company'] : $wp_job->company;
+                    $job_description = is_array($wp_job) ? $wp_job['description'] : $wp_job->description;
+                    $job_required_skills = is_array($wp_job) ? $wp_job['required_skills'] : $wp_job->required_skills;
+                    $job_preferred_skills = is_array($wp_job) ? $wp_job['preferred_skills'] : $wp_job->preferred_skills;
+                    $job_experience_years = is_array($wp_job) ? $wp_job['experience_years'] : $wp_job->experience_years;
+                    $job_location = is_array($wp_job) ? $wp_job['location'] : $wp_job->location;
+                    $job_salary_range = is_array($wp_job) ? $wp_job['salary_range'] : $wp_job->salary_range;
+                    $job_employment_type = is_array($wp_job) ? $wp_job['employment_type'] : $wp_job->employment_type;
+                    
+                    // Format job for Node.js server
+                    $jobs[] = array(
+                        'id' => $job_id,
+                        'title' => $job_title,
+                        'company' => $job_company,
+                        'description' => $job_description,
+                        'required_skills' => is_array($job_required_skills) 
+                            ? $job_required_skills 
+                            : (!empty($job_required_skills) ? explode(',', $job_required_skills) : array()),
+                        'preferred_skills' => is_array($job_preferred_skills) 
+                            ? $job_preferred_skills 
+                            : (!empty($job_preferred_skills) ? explode(',', $job_preferred_skills) : array()),
+                        'experience_years' => $job_experience_years,
+                        'location' => $job_location,
+                        'salary_range' => $job_salary_range,
+                        'employment_type' => $job_employment_type ? $job_employment_type : 'Full-time',
+                    );
+                }
+            }
+        } catch (Exception $e) {
+            error_log('ATW Semantic: Error fetching jobs during registration - ' . $e->getMessage());
+            // Continue registration even if jobs fail to fetch
+        }
+        
+        // Register with API (including database configuration and jobs)
         $response = wp_remote_post($api_base . '/api/admin/clients', array(
             'body' => json_encode(array(
                 'name' => $site_name . ' (' . $site_url . ')',
                 'apiUrl' => $site_url,
                 'db_config' => $db_config,
+                'jobs' => $jobs, // Send all WordPress jobs
             )),
             'headers' => array(
                 'Content-Type' => 'application/json',
             ),
-            'timeout' => 30,
+            'timeout' => 60, // Increased timeout for job processing
             'sslverify' => false, // Set to false for self-signed certificates, true for valid SSL
         ));
         
@@ -781,7 +824,7 @@ class ATW_Semantic_Search_Resume {
     
     /**
      * Handle sync WordPress jobs via AJAX
-     * Uses stored database configuration from client registration
+     * Fetches jobs from WordPress and sends them to Node.js server
      */
     public function handle_sync_wordpress_jobs() {
         check_ajax_referer('atw_semantic_nonce', 'nonce');
@@ -803,16 +846,57 @@ class ATW_Semantic_Search_Resume {
             return;
         }
         
-        // No need to send DB config - it's stored in Node.js server from registration
-        // Just send empty body or minimal request
+        // Fetch all jobs from WordPress database
+        $jobs = array();
+        try {
+            $wp_jobs = ATW_Jobs_Manager::get_jobs();
+            if ($wp_jobs && is_array($wp_jobs)) {
+                foreach ($wp_jobs as $wp_job) {
+                    // Handle both object and array formats from get_jobs()
+                    $job_id = is_array($wp_job) ? $wp_job['id'] : $wp_job->id;
+                    $job_title = is_array($wp_job) ? $wp_job['title'] : $wp_job->title;
+                    $job_company = is_array($wp_job) ? $wp_job['company'] : $wp_job->company;
+                    $job_description = is_array($wp_job) ? $wp_job['description'] : $wp_job->description;
+                    $job_required_skills = is_array($wp_job) ? $wp_job['required_skills'] : $wp_job->required_skills;
+                    $job_preferred_skills = is_array($wp_job) ? $wp_job['preferred_skills'] : $wp_job->preferred_skills;
+                    $job_experience_years = is_array($wp_job) ? $wp_job['experience_years'] : $wp_job->experience_years;
+                    $job_location = is_array($wp_job) ? $wp_job['location'] : $wp_job->location;
+                    $job_salary_range = is_array($wp_job) ? $wp_job['salary_range'] : $wp_job->salary_range;
+                    $job_employment_type = is_array($wp_job) ? $wp_job['employment_type'] : $wp_job->employment_type;
+                    
+                    // Format job for Node.js server
+                    $jobs[] = array(
+                        'id' => $job_id,
+                        'title' => $job_title,
+                        'company' => $job_company,
+                        'description' => $job_description,
+                        'required_skills' => is_array($job_required_skills) 
+                            ? $job_required_skills 
+                            : (!empty($job_required_skills) ? explode(',', $job_required_skills) : array()),
+                        'preferred_skills' => is_array($job_preferred_skills) 
+                            ? $job_preferred_skills 
+                            : (!empty($job_preferred_skills) ? explode(',', $job_preferred_skills) : array()),
+                        'experience_years' => $job_experience_years,
+                        'location' => $job_location,
+                        'salary_range' => $job_salary_range,
+                        'employment_type' => $job_employment_type ? $job_employment_type : 'Full-time',
+                    );
+                }
+            }
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => 'Error fetching jobs from WordPress: ' . $e->getMessage()));
+            return;
+        }
+        
+        // Send jobs to Node.js server
         $response = wp_remote_post($api_base . '/api/sync-wordpress-jobs', array(
             'headers' => array(
                 'X-API-Key' => $api_key,
                 'Content-Type' => 'application/json',
             ),
-            'body' => json_encode(array()), // Empty body - server uses stored config
+            'body' => json_encode(array('jobs' => $jobs)), // Send jobs array
             'sslverify' => false,
-            'timeout' => 300,
+            'timeout' => 300, // 5 minutes for large job lists
         ));
         
         if (is_wp_error($response)) {

@@ -190,11 +190,43 @@ class ATW_Semantic_Search_Resume {
         // Get admin email
         $admin_email = get_option('admin_email');
         
-        // Register with API
+        // Get WordPress database credentials
+        global $wpdb;
+        $db_host = DB_HOST;
+        $db_port = 3307; // Default to Docker mapped port
+        
+        // Extract port from DB_HOST if present
+        if (strpos($db_host, ':') !== false) {
+            $parts = explode(':', $db_host);
+            $db_host = $parts[0];
+            $db_port = isset($parts[1]) ? intval($parts[1]) : 3307;
+        }
+        
+        // Handle Docker service names - convert to localhost for host access
+        if (in_array($db_host, array('db', 'mysql', 'mariadb'))) {
+            $db_host = 'localhost';
+            // If port is 3306 (internal), use 3307 (Docker mapped port)
+            if ($db_port == 3306) {
+                $db_port = 3307;
+            }
+        }
+        
+        // Prepare database configuration
+        $db_config = array(
+            'db_host' => $db_host,
+            'db_port' => $db_port,
+            'db_name' => DB_NAME,
+            'db_user' => DB_USER,
+            'db_password' => DB_PASSWORD,
+            'table_prefix' => $wpdb->prefix,
+        );
+        
+        // Register with API (including database configuration)
         $response = wp_remote_post($api_base . '/api/admin/clients', array(
             'body' => json_encode(array(
                 'name' => $site_name . ' (' . $site_url . ')',
                 'apiUrl' => $site_url,
+                'db_config' => $db_config,
             )),
             'headers' => array(
                 'Content-Type' => 'application/json',
@@ -749,6 +781,7 @@ class ATW_Semantic_Search_Resume {
     
     /**
      * Handle sync WordPress jobs via AJAX
+     * Uses stored database configuration from client registration
      */
     public function handle_sync_wordpress_jobs() {
         check_ajax_referer('atw_semantic_nonce', 'nonce');
@@ -770,46 +803,14 @@ class ATW_Semantic_Search_Resume {
             return;
         }
         
-        // Get WordPress database credentials
-        global $wpdb;
-        
-        // Handle Docker database host - convert Docker service names to accessible host
-        $db_host = DB_HOST;
-        $db_port = 3307;
-        
-        // Extract port from DB_HOST if it's in format "host:port"
-        if (strpos($db_host, ':') !== false) {
-            $parts = explode(':', $db_host);
-            $db_host = $parts[0];
-            $db_port = isset($parts[1]) ? intval($parts[1]) : 3307;
-        }
-        
-        // If WordPress is in Docker and DB_HOST is a Docker service name, convert to localhost
-        // Docker service names like 'db', 'mysql' only work inside Docker network
-        // Node.js server on host needs to use 'localhost' with port mapping
-        if (in_array($db_host, array('db', 'mysql', 'mariadb'))) {
-            // Use localhost - Docker port mapping should expose MySQL to host
-            $db_host = 'localhost';
-        }
-        
-        $db_config = array(
-            'db_host' => $db_host,
-            'db_port' => $db_port,
-            'db_name' => DB_NAME,
-            'db_user' => DB_USER,
-            'db_password' => DB_PASSWORD,
-            'table_prefix' => $wpdb->prefix,
-        );
-        
-        // Log for debugging (remove sensitive data in production)
-        error_log('ATW Semantic: Syncing jobs with DB config - Host: ' . $db_host . ':' . $db_port . ', DB: ' . DB_NAME);
-        
+        // No need to send DB config - it's stored in Node.js server from registration
+        // Just send empty body or minimal request
         $response = wp_remote_post($api_base . '/api/sync-wordpress-jobs', array(
             'headers' => array(
                 'X-API-Key' => $api_key,
                 'Content-Type' => 'application/json',
             ),
-            'body' => json_encode($db_config),
+            'body' => json_encode(array()), // Empty body - server uses stored config
             'sslverify' => false,
             'timeout' => 300,
         ));
