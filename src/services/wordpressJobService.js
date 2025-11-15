@@ -87,83 +87,104 @@ class WordPressJobService {
       console.log(`[WordPress Jobs] Processing ${jobs.length} jobs for client ${clientId}...`);
       console.log(`[WordPress Jobs] Storing only embeddings - jobs remain in WordPress database`);
       
+      const BATCH_SIZE = 500; // Process 500 jobs at a time
       let processed = 0;
       let updated = 0;
       let created = 0;
 
+      // Filter and prepare valid jobs
+      const validJobs = [];
       for (const job of jobs) {
+        if (!job.id) {
+          console.error(`⚠️ Skipping job - missing ID:`, job);
+          continue;
+        }
+
+        if (!job.title && !job.description) {
+          console.error(`⚠️ Skipping job ${job.id} - missing title and description`);
+          continue;
+        }
+
+        const jobText = embeddingService.createJobText(job);
+        if (!jobText || jobText.trim().length === 0) {
+          console.error(`⚠️ Skipping job ${job.id} - empty job text`);
+          continue;
+        }
+
+        validJobs.push({ job, jobText });
+      }
+
+      console.log(`[WordPress Jobs] Valid jobs to process: ${validJobs.length}/${jobs.length}`);
+
+      // Process jobs in batches
+      for (let i = 0; i < validJobs.length; i += BATCH_SIZE) {
+        const batch = validJobs.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(validJobs.length / BATCH_SIZE);
+        
+        console.log(`[WordPress Jobs] Processing batch ${batchNumber}/${totalBatches} (${batch.length} jobs)...`);
+
         try {
-          // Validate job data
-          if (!job.id) {
-            console.error(`⚠️ Skipping job - missing ID:`, job);
-            continue;
-          }
-
-          if (!job.title && !job.description) {
-            console.error(`⚠️ Skipping job ${job.id} - missing title and description`);
-            continue;
-          }
-
-          // Create text representation for embedding
-          const jobText = embeddingService.createJobText(job);
+          // Prepare job texts for batch embedding
+          const jobTexts = batch.map(item => item.jobText);
           
-          if (!jobText || jobText.trim().length === 0) {
-            console.error(`⚠️ Skipping job ${job.id} - empty job text`);
+          // Generate embeddings in batch
+          const embeddings = await embeddingService.createBatchEmbeddings(jobTexts);
+
+          if (!embeddings || embeddings.length !== batch.length) {
+            console.error(`⚠️ Batch embedding mismatch: expected ${batch.length}, got ${embeddings?.length || 0}`);
+            // Fallback to individual processing for this batch
+            for (let j = 0; j < batch.length; j++) {
+              try {
+                const embedding = await embeddingService.createEmbedding(batch[j].jobText);
+                if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+                  await this.saveJobEmbedding(batch[j].job, embedding, clientId, nodejsPool);
+                  processed++;
+                }
+              } catch (err) {
+                console.error(`❌ Error processing job ${batch[j].job.id}:`, err);
+              }
+            }
             continue;
           }
 
-          // Generate embedding
-          const embedding = await embeddingService.createEmbedding(jobText);
+          // Save embeddings in batch
+          for (let j = 0; j < batch.length; j++) {
+            try {
+              const embedding = embeddings[j];
+              if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+                console.error(`⚠️ Skipping job ${batch[j].job.id} - invalid embedding`);
+                continue;
+              }
 
-          if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
-            console.error(`⚠️ Skipping job ${job.id} - failed to generate embedding`);
-            continue;
+              const result = await this.saveJobEmbedding(batch[j].job, embedding, clientId, nodejsPool);
+              if (result.created) created++;
+              if (result.updated) updated++;
+              processed++;
+            } catch (jobError) {
+              console.error(`❌ Error saving embedding for job ${batch[j].job.id}:`, jobError);
+              // Continue with next job
+            }
           }
 
-          // Check if embedding already exists (by WordPress job ID)
-          const checkQuery = await nodejsPool.query(
-            `SELECT id FROM job_embeddings WHERE wp_job_id = $1 AND client_id = $2`,
-            [String(job.id), clientId]
-          );
-
-          if (checkQuery.rows.length > 0) {
-            // Update existing embedding
-            await nodejsPool.query(`
-              UPDATE job_embeddings SET
-                embedding = $1,
-                updated_at = CURRENT_TIMESTAMP
-              WHERE wp_job_id = $2 AND client_id = $3
-            `, [
-              JSON.stringify(embedding),
-              String(job.id),
-              clientId,
-            ]);
-            updated++;
-          } else {
-            // Insert new embedding (only embedding, not full job data)
-            await nodejsPool.query(`
-              INSERT INTO job_embeddings (
-                wp_job_id, client_id, embedding
-              )
-              VALUES ($1, $2, $3)
-            `, [
-              String(job.id), // WordPress job ID
-              clientId,
-              JSON.stringify(embedding),
-            ]);
-            created++;
+          console.log(`  ✓ Batch ${batchNumber} complete: ${processed}/${validJobs.length} processed`);
+        } catch (batchError) {
+          console.error(`❌ Error processing batch ${batchNumber}:`, batchError);
+          // Fallback to individual processing for this batch
+          console.log(`  → Falling back to individual processing for batch ${batchNumber}...`);
+          for (const item of batch) {
+            try {
+              const embedding = await embeddingService.createEmbedding(item.jobText);
+              if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+                const result = await this.saveJobEmbedding(item.job, embedding, clientId, nodejsPool);
+                if (result.created) created++;
+                if (result.updated) updated++;
+                processed++;
+              }
+            } catch (err) {
+              console.error(`❌ Error processing job ${item.job.id}:`, err);
+            }
           }
-          
-          processed++;
-          
-          if (processed % 10 === 0) {
-            console.log(`  → Processed ${processed}/${jobs.length} embeddings...`);
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
-        } catch (jobError) {
-          console.error(`❌ Error processing job ${job?.id || 'unknown'}:`, jobError);
-          console.error(`   Job data:`, JSON.stringify(job, null, 2));
-          // Continue processing other jobs
         }
       }
 
@@ -179,6 +200,50 @@ class WordPressJobService {
     } catch (error) {
       console.error('Error processing WordPress jobs:', error);
       throw new Error('Failed to process WordPress jobs: ' + error.message);
+    }
+  }
+
+  /**
+   * Save a single job embedding to the database
+   * @param {Object} job - Job object
+   * @param {Array} embedding - Embedding vector
+   * @param {number} clientId - Client ID
+   * @param {Object} nodejsPool - Database pool
+   * @returns {Promise<Object>} Result with created/updated flags
+   */
+  async saveJobEmbedding(job, embedding, clientId, nodejsPool) {
+    // Check if embedding already exists (by WordPress job ID)
+    const checkQuery = await nodejsPool.query(
+      `SELECT id FROM job_embeddings WHERE wp_job_id = $1 AND client_id = $2`,
+      [String(job.id), clientId]
+    );
+
+    if (checkQuery.rows.length > 0) {
+      // Update existing embedding
+      await nodejsPool.query(`
+        UPDATE job_embeddings SET
+          embedding = $1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE wp_job_id = $2 AND client_id = $3
+      `, [
+        JSON.stringify(embedding),
+        String(job.id),
+        clientId,
+      ]);
+      return { updated: true, created: false };
+    } else {
+      // Insert new embedding (only embedding, not full job data)
+      await nodejsPool.query(`
+        INSERT INTO job_embeddings (
+          wp_job_id, client_id, embedding
+        )
+        VALUES ($1, $2, $3)
+      `, [
+        String(job.id), // WordPress job ID
+        clientId,
+        JSON.stringify(embedding),
+      ]);
+      return { created: true, updated: false };
     }
   }
   
