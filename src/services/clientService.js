@@ -112,29 +112,60 @@ class ClientService {
   }
 
   /**
-   * Get client by ID
+   * Get client by ID (numeric primary key) or client_id (string)
    */
   async getClientById(clientId) {
     try {
-      const query = `
-        SELECT 
-          id,
-          client_id,
-          name,
-          api_key,
-          api_url,
-          is_active,
-          created_at,
-          updated_at,
-          wp_db_host,
-          wp_db_port,
-          wp_db_name,
-          wp_table_prefix
-        FROM clients
-        WHERE id = $1 OR client_id = $1;
-      `;
+      const rawId = clientId;
+      const numericId = Number(rawId);
+      const isNumeric = Number.isInteger(numericId);
 
-      const result = await pool.query(query, [clientId]);
+      let query;
+      let params;
+
+      if (isNumeric) {
+        // Look up by integer primary key
+        query = `
+          SELECT 
+            id,
+            client_id,
+            name,
+            api_key,
+            api_url,
+            is_active,
+            created_at,
+            updated_at,
+            wp_db_host,
+            wp_db_port,
+            wp_db_name,
+            wp_table_prefix
+          FROM clients
+          WHERE id = $1;
+        `;
+        params = [numericId];
+      } else {
+        // Look up by string client_id
+        query = `
+          SELECT 
+            id,
+            client_id,
+            name,
+            api_key,
+            api_url,
+            is_active,
+            created_at,
+            updated_at,
+            wp_db_host,
+            wp_db_port,
+            wp_db_name,
+            wp_table_prefix
+          FROM clients
+          WHERE client_id = $1;
+        `;
+        params = [String(rawId)];
+      }
+
+      const result = await pool.query(query, params);
       
       if (result.rows.length === 0) {
         return null;
@@ -230,14 +261,28 @@ class ClientService {
       }
 
       updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
-      values.push(clientId);
+      const rawId = clientId;
+      const numericId = Number(rawId);
+      const isNumeric = Number.isInteger(numericId);
 
-      const query = `
-        UPDATE clients
-        SET ${updateFields.join(', ')}
-        WHERE id = $${paramCount} OR client_id = $${paramCount}
-        RETURNING *;
-      `;
+      let query;
+      if (isNumeric) {
+        values.push(numericId);
+        query = `
+          UPDATE clients
+          SET ${updateFields.join(', ')}
+          WHERE id = $${paramCount}
+          RETURNING *;
+        `;
+      } else {
+        values.push(String(rawId));
+        query = `
+          UPDATE clients
+          SET ${updateFields.join(', ')}
+          WHERE client_id = $${paramCount}
+          RETURNING *;
+        `;
+      }
 
       const result = await pool.query(query, values);
       
@@ -267,13 +312,30 @@ class ClientService {
    */
   async getClientDbConfig(clientId) {
     try {
-      const query = `
-        SELECT wp_db_host, wp_db_port, wp_db_name, wp_db_user, wp_db_password, wp_table_prefix
-        FROM clients
-        WHERE id = $1 OR client_id = $1;
-      `;
+      const rawId = clientId;
+      const numericId = Number(rawId);
+      const isNumeric = Number.isInteger(numericId);
 
-      const result = await pool.query(query, [clientId]);
+      let query;
+      let params;
+
+      if (isNumeric) {
+        query = `
+          SELECT wp_db_host, wp_db_port, wp_db_name, wp_db_user, wp_db_password, wp_table_prefix
+          FROM clients
+          WHERE id = $1;
+        `;
+        params = [numericId];
+      } else {
+        query = `
+          SELECT wp_db_host, wp_db_port, wp_db_name, wp_db_user, wp_db_password, wp_table_prefix
+          FROM clients
+          WHERE client_id = $1;
+        `;
+        params = [String(rawId)];
+      }
+
+      const result = await pool.query(query, params);
       
       if (result.rows.length === 0 || !result.rows[0].wp_db_host) {
         return null;
@@ -301,14 +363,32 @@ class ClientService {
     try {
       const newApiKey = generateApiKey();
 
-      const query = `
-        UPDATE clients
-        SET api_key = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2 OR client_id = $2
-        RETURNING *;
-      `;
+      const rawId = clientId;
+      const numericId = Number(rawId);
+      const isNumeric = Number.isInteger(numericId);
 
-      const result = await pool.query(query, [newApiKey, clientId]);
+      let query;
+      let params;
+
+      if (isNumeric) {
+        query = `
+          UPDATE clients
+          SET api_key = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+          RETURNING *;
+        `;
+        params = [newApiKey, numericId];
+      } else {
+        query = `
+          UPDATE clients
+          SET api_key = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE client_id = $2
+          RETURNING *;
+        `;
+        params = [newApiKey, String(rawId)];
+      }
+
+      const result = await pool.query(query, params);
       
       if (result.rows.length === 0) {
         throw new Error('Client not found');
@@ -331,14 +411,32 @@ class ClientService {
    */
   async deleteClient(clientId) {
     try {
-      const query = `
-        UPDATE clients
-        SET is_active = false, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 OR client_id = $1
-        RETURNING *;
-      `;
+      const rawId = clientId;
+      const numericId = Number(rawId);
+      const isNumeric = Number.isInteger(numericId);
 
-      const result = await pool.query(query, [clientId]);
+      let query;
+      let params;
+
+      if (isNumeric) {
+        query = `
+          UPDATE clients
+          SET is_active = false, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING *;
+        `;
+        params = [numericId];
+      } else {
+        query = `
+          UPDATE clients
+          SET is_active = false, updated_at = CURRENT_TIMESTAMP
+          WHERE client_id = $1
+          RETURNING *;
+        `;
+        params = [String(rawId)];
+      }
+
+      const result = await pool.query(query, params);
       
       if (result.rows.length === 0) {
         throw new Error('Client not found');
