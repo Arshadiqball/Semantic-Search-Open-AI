@@ -11,7 +11,48 @@ if (!defined('ABSPATH')) {
 class ATW_Jobs_Manager {
     
     /**
-     * Create wp_jobs table
+     * Resolve jobs table and column mapping from plugin settings.
+     *
+     * Returns an array with keys:
+     *  - table
+     *  - id, title, company, description, required_skills, preferred_skills,
+     *    experience_years, location, salary_range, employment_type, status, status_active
+     */
+    protected static function get_schema() {
+        global $wpdb;
+
+        // Default schema for plugin-managed table wp_jobs
+        $schema = array(
+            'table'           => $wpdb->prefix . 'jobs',
+            'id'              => 'id',
+            'title'           => 'title',
+            'company'         => 'company',
+            'description'     => 'description',
+            'required_skills' => 'required_skills',
+            'preferred_skills'=> 'preferred_skills',
+            'experience_years'=> 'experience_years',
+            'location'        => 'location',
+            'salary_range'    => 'salary_range',
+            'employment_type' => 'employment_type',
+            'status'          => 'status',
+            'status_active'   => 'active',
+        );
+
+        if ( class_exists( 'ATW_Semantic_Search_Resume' ) ) {
+            $plugin = ATW_Semantic_Search_Resume::get_instance();
+            if ( method_exists( $plugin, 'get_jobs_schema' ) ) {
+                $configured = $plugin->get_jobs_schema();
+                if ( is_array( $configured ) ) {
+                    $schema = array_merge( $schema, $configured );
+                }
+            }
+        }
+
+        return $schema;
+    }
+
+    /**
+     * Create default wp_jobs table (used only when no custom table is configured)
      */
     public static function create_jobs_table() {
         global $wpdb;
@@ -35,37 +76,81 @@ class ATW_Jobs_Manager {
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY idx_status (status),
+            KEY idx_comp (company),
             KEY idx_created_at (created_at)
         ) $charset_collate;";
         
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($sql);
+        require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+        dbDelta( $sql );
     }
     
     /**
      * Get all active jobs
      */
-    public static function get_jobs($status = 'active') {
+    public static function get_jobs( $status = 'active' ) {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'jobs';
-        
-        $query = $wpdb->prepare(
-            "SELECT * FROM $table_name WHERE status = %s ORDER BY created_at DESC",
-            $status
+
+        $schema = self::get_schema();
+        $table  = esc_sql( $schema['table'] );
+
+        $select_parts = array();
+        $select_parts[] = sprintf( '%s AS id', esc_sql( $schema['id'] ) );
+        $select_parts[] = $schema['title']           ? sprintf( '%s AS title', esc_sql( $schema['title'] ) ) : \"'' AS title\";
+        $select_parts[] = $schema['company']         ? sprintf( '%s AS company', esc_sql( $schema['company'] ) ) : \"'' AS company\";
+        $select_parts[] = $schema['description']     ? sprintf( '%s AS description', esc_sql( $schema['description'] ) ) : \"'' AS description\";
+        $select_parts[] = $schema['required_skills'] ? sprintf( '%s AS required_skills', esc_sql( $schema['required_skills'] ) ) : \"'' AS required_skills\";
+        $select_parts[] = $schema['preferred_skills']? sprintf( '%s AS preferred_skills', esc_sql( $schema['preferred_skills'] ) ) : \"'' AS preferred_skills\";
+        $select_parts[] = $schema['experience_years']? sprintf( '%s AS experience_years', esc_sql( $schema['experience_years'] ) ) : 'NULL AS experience_years';
+        $select_parts[] = $schema['location']        ? sprintf( '%s AS location', esc_sql( $schema['location'] ) ) : \"'' AS location\";
+        $select_parts[] = $schema['salary_range']    ? sprintf( '%s AS salary_range', esc_sql( $schema['salary_range'] ) ) : \"'' AS salary_range\";
+        $select_parts[] = $schema['employment_type'] ? sprintf( '%s AS employment_type', esc_sql( $schema['employment_type'] ) ) : \"'' AS employment_type\";
+
+        $where_clauses = array();
+        $params = array();
+
+        if ( ! empty( $schema['status'] ) && $status !== '' ) {
+            $where_clauses[] = sprintf( '%s = %%s', esc_sql( $schema['status'] ) );
+            $params[] = $status;
+        }
+
+        $where_sql = '';
+        if ( ! empty( $where_clauses ) ) {
+            $where_sql = 'WHERE ' . implode( ' AND ', $where_clauses );
+        }
+
+        $order_col = ! empty( $schema['id'] ) ? esc_sql( $schema['id'] ) : '1';
+
+        $sql = sprintf(
+            'SELECT %s FROM %s %s ORDER BY %s DESC',
+            implode( \",\\n       \", $select_parts ),
+            $table,
+            $where_sql,
+            $order_col
         );
-        
-        return $wpdb->get_results($query, ARRAY_A);
+
+        if ( ! empty( $params ) ) {
+            $query = $wpdb->prepare( $sql, $params );
+        } else {
+            $query = $sql;
+        }
+
+        return $wpdb->get_results( $query, ARRAY_A );
     }
     
     /**
      * Get job by ID
      */
-    public static function get_job($job_id) {
+    public static function get_job( $job_id ) {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'jobs';
-        
+
+        $schema = self::get_schema();
+        $table  = esc_sql( $schema['table'] );
+        $id_col = esc_sql( $schema['id'] );
+
+        $sql = "SELECT * FROM $table WHERE $id_col = %s LIMIT 1";
+
         return $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $job_id),
+            $wpdb->prepare( $sql, $job_id ),
             ARRAY_A
         );
     }
@@ -73,86 +158,131 @@ class ATW_Jobs_Manager {
     /**
      * Insert or update job
      */
-    public static function save_job($job_data) {
+    public static function save_job( $job_data ) {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'jobs';
-        
+
+        $schema = self::get_schema();
+        $table  = esc_sql( $schema['table'] );
+
         $defaults = array(
-            'title' => '',
-            'company' => '',
-            'description' => '',
+            'id'              => null,
+            'title'           => '',
+            'company'         => '',
+            'description'     => '',
             'required_skills' => '',
-            'preferred_skills' => '',
-            'experience_years' => null,
-            'location' => '',
-            'salary_range' => '',
+            'preferred_skills'=> '',
+            'experience_years'=> null,
+            'location'        => '',
+            'salary_range'    => '',
             'employment_type' => 'Full-time',
-            'status' => 'active',
+            'status'          => 'active',
         );
-        
-        $job_data = wp_parse_args($job_data, $defaults);
-        
-        // Convert skills arrays to comma-separated strings if needed
-        if (is_array($job_data['required_skills'])) {
-            $job_data['required_skills'] = implode(',', $job_data['required_skills']);
+
+        $data = wp_parse_args( $job_data, $defaults );
+
+        $column_map = array(
+            'id'              => $schema['id'],
+            'title'           => $schema['title'],
+            'company'         => $schema['company'],
+            'description'     => $schema['description'],
+            'required_skills' => $schema['required_skills'],
+            'preferred_skills'=> $schema['preferred_skills'],
+            'experience_years'=> $schema['experience_years'],
+            'location'        => $schema['location'],
+            'salary_range'    => $schema['salary_range'],
+            'employment_type' => $schema['employment_type'],
+            'status'          => $schema['status'],
+        );
+
+        $insert_data    = array();
+        $insert_formats = array();
+        $update_data    = array();
+        $where          = array();
+
+        foreach ( $column_map as $logical => $column ) {
+            if ( empty( $column ) ) {
+                continue;
+            }
+
+            if ( $logical === 'id' ) {
+                if ( ! empty( $data['id'] ) ) {
+                    $where[ $column ] = $data['id'];
+                }
+                continue;
+            }
+
+            if ( array_key_exists( $logical, $data ) ) {
+                $value = $data[ $logical ];
+
+                if ( in_array( $logical, array( 'required_skills', 'preferred_skills' ), true ) && is_array( $value ) ) {
+                    $value = implode( ',', $value );
+                }
+
+                $insert_data[ $column ] = $value;
+                $insert_formats[]       = ( $logical === 'experience_years' ) ? '%d' : '%s';
+
+                if ( ! empty( $where ) ) {
+                    $update_data[ $column ] = $value;
+                }
+            }
         }
-        if (is_array($job_data['preferred_skills'])) {
-            $job_data['preferred_skills'] = implode(',', $job_data['preferred_skills']);
-        }
-        
-        if (isset($job_data['id']) && $job_data['id']) {
-            // Update existing job
-            $job_id = intval($job_data['id']);
-            unset($job_data['id']);
-            
+
+        if ( ! empty( $where ) ) {
             $wpdb->update(
-                $table_name,
-                $job_data,
-                array('id' => $job_id),
-                array('%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s'),
-                array('%d')
+                $table,
+                $update_data,
+                $where
             );
-            
-            return $job_id;
-        } else {
-            // Insert new job
-            $wpdb->insert(
-                $table_name,
-                $job_data,
-                array('%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s')
-            );
-            
-            return $wpdb->insert_id;
+
+            return (int) $data['id'];
         }
+
+        $wpdb->insert(
+            $table,
+            $insert_data,
+            $insert_formats
+        );
+
+        return (int) $wpdb->insert_id;
     }
     
     /**
      * Delete job
      */
-    public static function delete_job($job_id) {
+    public static function delete_job( $job_id ) {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'jobs';
-        
+
+        $schema = self::get_schema();
+        $table  = esc_sql( $schema['table'] );
+        $id_col = esc_sql( $schema['id'] );
+
         return $wpdb->delete(
-            $table_name,
-            array('id' => $job_id),
-            array('%d')
+            $table,
+            array( $id_col => $job_id ),
+            array( '%s' )
         );
     }
     
     /**
      * Get jobs count
      */
-    public static function get_jobs_count($status = 'active') {
+    public static function get_jobs_count( $status = 'active' ) {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'jobs';
-        
-        return (int) $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT COUNT(*) FROM $table_name WHERE status = %s",
-                $status
-            )
-        );
+
+        $schema = self::get_schema();
+        $table  = esc_sql( $schema['table'] );
+        $status_col = $schema['status'];
+
+        if ( ! empty( $status_col ) && $status !== '' ) {
+            return (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM $table WHERE {$status_col} = %s",
+                    $status
+                )
+            );
+        }
+
+        return (int) $wpdb->get_var( "SELECT COUNT(*) FROM $table" );
     }
 }
 

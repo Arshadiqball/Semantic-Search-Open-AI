@@ -153,8 +153,8 @@ class ATW_Semantic_Search_Resume {
         $wpdb->replace(
             $table_name,
             array(
-                'setting_key' => $key,
-                'setting_value' => $value,
+                'setting_key'  => $key,
+                'setting_value'=> $value,
             ),
             array('%s', '%s')
         );
@@ -172,6 +172,42 @@ class ATW_Semantic_Search_Resume {
             array('setting_key' => $key),
             array('%s')
         );
+    }
+
+    /**
+     * Get configured jobs table name (full table name, e.g. wp_jobs or custom)
+     */
+    public function get_jobs_table_name() {
+        global $wpdb;
+        $default = $wpdb->prefix . 'jobs';
+        $value = $this->get_setting('jobs_table_name', $default);
+        if (empty($value)) {
+            return $default;
+        }
+        return $value;
+    }
+
+    /**
+     * Get mapping of logical job fields to actual DB column names / values
+     */
+    public function get_jobs_schema() {
+        $schema = array(
+            'table'            => $this->get_jobs_table_name(),
+            'id'               => $this->get_setting('jobs_col_id', 'id'),
+            'title'            => $this->get_setting('jobs_col_title', 'title'),
+            'company'          => $this->get_setting('jobs_col_company', 'company'),
+            'description'      => $this->get_setting('jobs_col_description', 'description'),
+            'required_skills'  => $this->get_setting('jobs_col_required_skills', 'required_skills'),
+            'preferred_skills' => $this->get_setting('jobs_col_preferred_skills', 'preferred_skills'),
+            'experience_years' => $this-> get_setting('jobs_col_experience_years', 'experience_years'),
+            'location'         => $this->get_setting('jobs_col_location', 'location'),
+            'salary_range'     => $this->get_setting('jobs_col_salary_range', 'salary_range'),
+            'employment_type'  => $this->get_setting('jobs_col_employment_type', 'employment_type'),
+            'status'           => $this->get_setting('jobs_col_status', 'status'),
+            'status_active'    => $this->get_setting('jobs_status_active_value', 'active'),
+        );
+
+        return $schema;
     }
     
     /**
@@ -199,35 +235,46 @@ class ATW_Semantic_Search_Resume {
         // Get admin email
         $admin_email = get_option('admin_email');
         
-        // Get WordPress database credentials
+        // Get WordPress database credentials (host, port, name, user, password)
         global $wpdb;
         $db_host = DB_HOST;
-        $db_port = 3307; // Default to Docker mapped port
-        
-        // Extract port from DB_HOST if present
+        $db_port = 3307; // default Docker mapping
+
         if (strpos($db_host, ':') !== false) {
-            $parts = explode(':', $db_host);
+            $parts   = explode( ':', $db_host );
             $db_host = $parts[0];
-            $db_port = isset($parts[1]) ? intval($parts[1]) : 3307;
+            $db_port = isset( $parts[1] ) ? intval( $parts[1] ) : 3307;
         }
-        
-        // Handle Docker service names - convert to localhost for host access
-        if (in_array($db_host, array('db', 'mysql', 'mariadb'))) {
-            $db_host = 'localhost';
-            // If port is 3306 (internal), use 3307 (Docker mapped port)
-            if ($db_port == 3306) {
+
+        if ( in_array( $db_host, array( 'localhost', '127.0.0.1', 'db', 'mysql', 'mariadb' ), true ) ) {
+            // When running WordPress in Docker, map to host.docker.internal:3307
+            $db_host = 'host.docker.internal';
+            if ( $db_port === 3306 ) {
                 $db_port = 3307;
             }
         }
-        
-        // Prepare database configuration
+
+        // Prepare database configuration (including jobs table and column mapping)
+        $schema = $this->get_jobs_schema();
         $db_config = array(
-            'db_host' => $db_host,
-            'db_port' => $db_port,
-            'db_name' => DB_NAME,
-            'db_user' => DB_USER,
-            'db_password' => DB_PASSWORD,
-            'table_prefix' => $wpdb->prefix,
+            'db_host'          => $db_host,
+            'db_port'          => $db_port,
+            'db_name'          => DB_NAME,
+            'db_user'          => DB_USER,
+            'db_password'      => DB_PASSWORD,
+            'table_name'       => isset( $schema['table'] ) ? $schema['table'] : $wpdb->prefix . 'jobs',
+            'id_column'        => isset( $schema['id'] ) ? $schema['id'] : 'id',
+            'title_column'     => isset( $schema['title'] ) ? $schema['title'] : 'title',
+            'company_column'   => isset( $schema['company'] ) ? $schema['company'] : 'company',
+            'description_column' => isset( $schema['description'] ) ? $schema['description'] : 'description',
+            'required_skills_column'  => isset( $schema['required_skills'] ) ? $schema['required_skills'] : 'required_skills',
+            'preferred_skills_column' => isset( $schema['preferred_skills'] ) ? $schema['preferred_skills'] : 'preferred_skills',
+            'experience_years_column' => isset( $schema['experience_years'] ) ? $schema['experience_years'] : 'experience_years',
+            'location_column'         => isset( $schema['location'] ) ? $schema['location'] : 'location',
+            'salary_range_column'     => isset( $schema['salary_range'] ) ? $schema['salary_range'] : 'salary_range',
+            'employment_type_column'  => isset( $schema['employment_type'] ) ? $schema['employment_type'] : 'employment_type',
+            'status_column'           => isset( $schema['status'] ) ? $schema['status'] : 'status',
+            'status_active_value'     => isset( $schema['status_active'] ) ? $schema['status_active'] : 'active',
         );
         
         // Load Jobs Manager class

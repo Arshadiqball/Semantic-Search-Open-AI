@@ -393,11 +393,38 @@ app.post('/api/upload-resume', authenticateApiKey, upload.single('resume'), asyn
 
     await fsp.unlink(req.file.path);
 
+    // Build lightweight section-completeness summary for frontend UI
+    const parsed = resumeData.parsed || {};
+    const fullText = resumeData.text || '';
+
+    const hasSkills = Array.isArray(parsed.skills) && parsed.skills.length > 0;
+    const hasEducation = Array.isArray(parsed.education) && parsed.education.length > 0;
+    const hasExperience = typeof parsed.experienceYears === 'number' && parsed.experienceYears > 0;
+
+    // Basic personal details detection (email / phone)
+    const hasEmailInText = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(fullText);
+    const hasPhoneInText = /\+?\d[\d\s().-]{7,}\d/.test(fullText);
+    const hasPersonalDetails = hasEmailInText || hasPhoneInText;
+
+    // Basic military experience detection
+    const militaryRegex = /(U\.S\.|US)\s*(Army|Navy|Air\s*Force|Marine\s*Corps|Coast\s*Guard|Space\s*Force)|\b(Sergeant|Corporal|Lieutenant|Captain|Major|Colonel|Brigadier|General)\b/i;
+    const hasMilitaryExperience = militaryRegex.test(fullText);
+
+    const sections = {
+      personalDetails: !!hasPersonalDetails,
+      militaryExperience: !!hasMilitaryExperience,
+      civilianExperience: !!hasExperience,
+      education: !!hasEducation,
+      skills: !!hasSkills,
+      misc: false,
+    };
+
     res.json({
       success: true,
       resumeId: storedResume.id,
-      extractedSkills: resumeData.parsed.skills,
-      experienceYears: resumeData.parsed.experienceYears,
+      extractedSkills: parsed.skills || [],
+      experienceYears: parsed.experienceYears || 0,
+      sections,
       matchCount: matches.length,
       matches,
     });
