@@ -282,13 +282,20 @@ app.post('/api/sync-wordpress-jobs', authenticateApiKey, async (req, res) => {
     }
     
     if (jobs.length === 0) {
+      // If WordPress sends an empty list, delete ALL embeddings for this client
+      console.log(`[API] No jobs provided in sync request. Deleting all embeddings for client ${clientId}...`);
+      const deleteResult = await pool.query(
+        'DELETE FROM job_embeddings WHERE client_id = $1',
+        [clientId]
+      );
       return res.json({
         success: true,
-        message: 'No jobs to sync',
+        message: 'No jobs to sync. All existing embeddings for this client have been deleted.',
         total: 0,
         processed: 0,
         created: 0,
         updated: 0,
+        deleted: deleteResult.rowCount || 0,
       });
     }
     

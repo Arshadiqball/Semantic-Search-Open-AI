@@ -189,6 +189,32 @@ class WordPressJobService {
       }
 
       console.log(`✅ Processed ${processed} embeddings: ${created} created, ${updated} updated`);
+
+      // --- Delete embeddings for jobs that no longer exist in WordPress ---
+      let deleted = 0;
+      try {
+        const currentWpIds = validJobs.map(v => String(v.job.id));
+
+        if (currentWpIds.length > 0) {
+          console.log(`[WordPress Jobs] Pruning embeddings for client ${clientId}. Keeping ${currentWpIds.length} job IDs.`);
+
+          const deleteResult = await nodejsPool.query(
+            `
+            DELETE FROM job_embeddings
+            WHERE client_id = $1
+              AND wp_job_id <> ALL($2::text[])
+            `,
+            [clientId, currentWpIds]
+          );
+
+          deleted = deleteResult.rowCount || 0;
+          console.log(`[WordPress Jobs] Deleted ${deleted} stale embeddings for client ${clientId}`);
+        } else {
+          console.log('[WordPress Jobs] No valid jobs provided; skipping deletion of stale embeddings.');
+        }
+      } catch (pruneError) {
+        console.error('[WordPress Jobs] Error pruning stale embeddings:', pruneError);
+      }
       
       return {
         success: true,
@@ -196,6 +222,7 @@ class WordPressJobService {
         processed,
         created,
         updated,
+        deleted,
       };
     } catch (error) {
       console.error('Error processing WordPress jobs:', error);

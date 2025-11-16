@@ -26,7 +26,7 @@
                 data: {
                     action: 'atw_generate_dummy_jobs',
                     nonce: nonce,
-                    count: 100
+                    count: 500
                 },
                 timeout: 300000, // 5 minutes
                 success: function(response) {
