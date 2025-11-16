@@ -382,16 +382,41 @@ class ATW_Semantic_Search_Resume {
     
     /**
      * Add admin menu
+     * Top-level: ATW
+     * Sub-menus: Search Settings, Analytics
      */
     public function add_admin_menu() {
+        $parent_slug = 'atw-semantic';
+        
+        // Top-level menu: ATW
         add_menu_page(
-            __('Semantic Search Settings', 'atw-semantic-search'),
-            __('Semantic Search', 'atw-semantic-search'),
+            __('ATW Semantic Search', 'atw-semantic-search'),
+            __('ATW', 'atw-semantic-search'),
             'manage_options',
-            'atw-semantic-search',
+            $parent_slug,
             array($this, 'render_admin_page'),
             'dashicons-search',
             30
+        );
+        
+        // Sub-menu: Search Settings
+        add_submenu_page(
+            $parent_slug,
+            __('Search Settings', 'atw-semantic-search'),
+            __('Search Settings', 'atw-semantic-search'),
+            'manage_options',
+            $parent_slug,
+            array($this, 'render_admin_page')
+        );
+        
+        // Sub-menu: Analytics
+        add_submenu_page(
+            $parent_slug,
+            __('Analytics', 'atw-semantic-search'),
+            __('Analytics', 'atw-semantic-search'),
+            'manage_options',
+            'atw-semantic-analytics',
+            array($this, 'render_analytics_page')
         );
     }
     
@@ -408,10 +433,11 @@ class ATW_Semantic_Search_Resume {
      * Enqueue admin scripts
      */
     public function enqueue_admin_scripts($hook) {
-        if ('toplevel_page_atw-semantic-search' !== $hook) {
+        // Load assets on all ATW Semantic admin pages (settings + analytics)
+        if (strpos($hook, 'atw-semantic') === false) {
             return;
         }
-        
+
         wp_enqueue_style('atw-semantic-admin', ATW_SEMANTIC_PLUGIN_URL . 'assets/admin.css', array(), ATW_SEMANTIC_VERSION);
         wp_enqueue_script('atw-semantic-admin', ATW_SEMANTIC_PLUGIN_URL . 'assets/admin.js', array('jquery'), ATW_SEMANTIC_VERSION, true);
     }
@@ -438,7 +464,7 @@ class ATW_Semantic_Search_Resume {
     }
     
     /**
-     * Render admin page
+     * Render admin settings page
      */
     public function render_admin_page() {
         if (!current_user_can('manage_options')) {
@@ -446,6 +472,17 @@ class ATW_Semantic_Search_Resume {
         }
         
         include ATW_SEMANTIC_PLUGIN_DIR . 'templates/admin-settings.php';
+    }
+    
+    /**
+     * Render analytics page inside WordPress admin
+     */
+    public function render_analytics_page() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
+        include ATW_SEMANTIC_PLUGIN_DIR . 'templates/admin-analytics.php';
     }
     
     /**
