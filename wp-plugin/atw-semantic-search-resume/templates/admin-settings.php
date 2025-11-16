@@ -254,7 +254,7 @@ $common_tech_stack = array(
                 <div class="atw-semantic-section">
                     <h2><?php _e('Generate Dummy Jobs (Testing)', 'atw-semantic-search'); ?></h2>
                     <p class="description">
-                        <?php _e('Generate 100 dummy jobs for testing the semantic search model. These jobs will be created in your WordPress database (wp_jobs table).', 'atw-semantic-search'); ?>
+                        <?php _e('Generate 500 dummy jobs (Full Stack, SEO, Data Analytics, Mobile, and more) for testing the semantic search model. These jobs will be created in your WordPress database (wp_jobs table).', 'atw-semantic-search'); ?>
                     </p>
                     
                     <p>
@@ -263,7 +263,7 @@ $common_tech_stack = array(
                                 class="button button-secondary"
                                 data-nonce="<?php echo wp_create_nonce('atw_semantic_nonce'); ?>">
                             <span class="dashicons dashicons-admin-generic" style="vertical-align: middle;"></span>
-                            <?php _e('Generate 100 Dummy Jobs in WordPress', 'atw-semantic-search'); ?>
+                            <?php _e('Generate 500 Dummy Jobs in WordPress', 'atw-semantic-search'); ?>
                         </button>
                         <span id="atw_dummy_jobs_status" style="margin-left: 10px;"></span>
                     </p>
