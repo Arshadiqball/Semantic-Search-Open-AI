@@ -868,9 +868,10 @@ class ATW_Semantic_Search_Resume {
             ),
         );
         
-        $variations = array('Senior', 'Lead', 'Principal', 'Mid-level', 'Junior', 'Associate');
-        $companies = array('TechCorp', 'WebSolutions Inc', 'CloudTech', 'Infrastructure Pro', 'DataAnalytics Co', 'MobileFirst', 'DesignStudio', 'ProductLab', 'QualityAssurance Ltd', 'SecureTech', 'InnovationHub', 'StartupXYZ');
-        $locations = array('San Francisco, CA', 'New York, NY', 'Austin, TX', 'Seattle, WA', 'Boston, MA', 'Los Angeles, CA', 'Portland, OR', 'Chicago, IL', 'Denver, CO', 'Washington, DC', 'Remote', 'Hybrid');
+        $variations = array('Junior', 'Mid-level', 'Senior', 'Lead', 'Principal', 'Associate');
+        $domains = array('E‑commerce', 'Fintech', 'HealthTech', 'EdTech', 'SaaS', 'AI', 'Analytics', 'Marketplace', 'Media', 'Travel', 'Logistics', 'Gaming');
+        $companies = array('TechCorp', 'WebSolutions Inc', 'CloudTech', 'Infrastructure Pro', 'DataAnalytics Co', 'MobileFirst', 'DesignStudio', 'ProductLab', 'QualityAssurance Ltd', 'SecureTech', 'InnovationHub', 'StartupXYZ', 'NextGen Labs', 'BrightFuture', 'CodeWorks');
+        $locations = array('San Francisco, CA', 'New York, NY', 'Austin, TX', 'Seattle, WA', 'Boston, MA', 'Los Angeles, CA', 'Portland, OR', 'Chicago, IL', 'Denver, CO', 'Washington, DC', 'Remote', 'Hybrid', 'Miami, FL', 'Toronto, ON', 'London, UK');
         $salary_ranges = array('$80,000 - $120,000', '$90,000 - $130,000', '$100,000 - $150,000', '$110,000 - $160,000', '$120,000 - $180,000', '$130,000 - $200,000');
         
         $created = 0;
@@ -880,22 +881,49 @@ class ATW_Semantic_Search_Resume {
             try {
                 $template = $job_templates[$i % count($job_templates)];
                 $variation = $variations[$i % count($variations)];
+                $domain = $domains[$i % count($domains)];
                 $company = $companies[$i % count($companies)];
                 $location = $locations[$i % count($locations)];
                 $salary = $salary_ranges[$i % count($salary_ranges)];
                 
-                // Add variation to title if not already present
+                // Build a UNIQUE and more descriptive title
                 $title = $template['title'];
                 if (strpos($title, $variation) === false) {
                     $title = $variation . ' ' . $title;
                 }
+                // Add domain and a unique index to guarantee uniqueness across 500 jobs
+                $title = $title . ' - ' . $domain . ' (Job #' . ($i + 1) . ')';
+
+                // Randomize skills per job so skill sets differ
+                $required_skills_list = array();
+                if (!empty($template['required_skills'])) {
+                    $required_skills_list = array_filter(array_map('trim', explode(',', $template['required_skills'])));
+                    shuffle($required_skills_list);
+                }
+                $preferred_skills_list = array();
+                if (!empty($template['preferred_skills'])) {
+                    $preferred_skills_list = array_filter(array_map('trim', explode(',', $template['preferred_skills'])));
+                    shuffle($preferred_skills_list);
+                }
+
+                // Take a varying slice so each job has a slightly different combination
+                $required_slice_size = min(6, max(3, ($i % 6) + 3));
+                $preferred_slice_size = min(5, max(2, ($i % 5) + 2));
+
+                $required_skills = !empty($required_skills_list)
+                    ? implode(',', array_slice($required_skills_list, 0, min($required_slice_size, count($required_skills_list))))
+                    : $template['required_skills'];
+
+                $preferred_skills = !empty($preferred_skills_list)
+                    ? implode(',', array_slice($preferred_skills_list, 0, min($preferred_slice_size, count($preferred_skills_list))))
+                    : $template['preferred_skills'];
                 
                 $job_data = array(
                     'title' => $title,
                     'company' => $company,
                     'description' => $template['description'],
-                    'required_skills' => $template['required_skills'],
-                    'preferred_skills' => $template['preferred_skills'],
+                    'required_skills' => $required_skills,
+                    'preferred_skills' => $preferred_skills,
                     'experience_years' => $template['experience_years'] + ($i % 3) - 1,
                     'location' => $location,
                     'salary_range' => $salary,
