@@ -1084,6 +1084,38 @@ class ATW_Semantic_Search_Resume {
         }
         
         if (isset($data['success']) && $data['success']) {
+            // If a WordPress user is logged in, link this resume ID to their profile immediately
+            if (is_user_logged_in() && isset($data['resumeId'])) {
+                global $wpdb;
+                $user_id = get_current_user_id();
+                $profiles_table = $wpdb->prefix . 'atw_semantic_profiles';
+                $resume_id = intval($data['resumeId']);
+
+                // Upsert resume_id only, do not touch existing preferences
+                $existing_profile_id = $wpdb->get_var(
+                    $wpdb->prepare("SELECT id FROM $profiles_table WHERE user_id = %d", $user_id)
+                );
+
+                if ($existing_profile_id) {
+                    $wpdb->update(
+                        $profiles_table,
+                        array('resume_id' => $resume_id),
+                        array('id' => $existing_profile_id),
+                        array('%d'),
+                        array('%d')
+                    );
+                } else {
+                    $wpdb->insert(
+                        $profiles_table,
+                        array(
+                            'user_id'   => $user_id,
+                            'resume_id' => $resume_id,
+                        ),
+                        array('%d', '%d')
+                    );
+                }
+            }
+
             // Enrich matches with local WordPress job details so Node.js
             // does NOT need to connect to the client database.
             if (isset($data['matches']) && is_array($data['matches']) && !empty($data['matches'])) {

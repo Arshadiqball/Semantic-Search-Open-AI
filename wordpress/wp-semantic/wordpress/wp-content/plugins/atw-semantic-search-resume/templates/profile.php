@@ -219,6 +219,11 @@ $common_tech_stack = array(
             <span id="atw_profile_status" style="margin-left:10px;"></span>
         </p>
     </form>
+
+    <!-- Error container (shared with frontend JS) -->
+    <div id="atw-semantic-error" class="atw-semantic-error" style="display:none;">
+        <div class="atw-semantic-error-content"></div>
+    </div>
 </div>
 
 
