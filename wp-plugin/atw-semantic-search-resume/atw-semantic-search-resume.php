@@ -613,6 +613,55 @@ class ATW_Semantic_Search_Resume {
         }
         
         if (isset($data['success']) && $data['success']) {
+            // Enrich matches with local WordPress job details so Node.js
+            // does NOT need to connect to the client database.
+            if (isset($data['matches']) && is_array($data['matches']) && !empty($data['matches'])) {
+                // Ensure Jobs Manager is loaded
+                if (!class_exists('ATW_Jobs_Manager')) {
+                    require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
+                }
+
+                foreach ($data['matches'] as &$match) {
+                    // Node returns jobId as the WordPress job ID
+                    if (!isset($match['jobId'])) {
+                        continue;
+                    }
+
+                    $job_id = intval($match['jobId']);
+                    if ($job_id <= 0) {
+                        continue;
+                    }
+
+                    $job = ATW_Jobs_Manager::get_job($job_id);
+                    if (!$job || !is_array($job)) {
+                        continue;
+                    }
+
+                    // Convert comma-separated skills to arrays
+                    $required_skills = array();
+                    $preferred_skills = array();
+
+                    if (!empty($job['required_skills'])) {
+                        $required_skills = array_filter(array_map('trim', explode(',', $job['required_skills'])));
+                    }
+                    if (!empty($job['preferred_skills'])) {
+                        $preferred_skills = array_filter(array_map('trim', explode(',', $job['preferred_skills'])));
+                    }
+
+                    // Populate fields expected by the frontend JS
+                    $match['title'] = $job['title'];
+                    $match['company'] = $job['company'];
+                    $match['description'] = $job['description'];
+                    $match['requiredSkills'] = $required_skills;
+                    $match['preferredSkills'] = $preferred_skills;
+                    $match['experienceYears'] = isset($job['experience_years']) ? intval($job['experience_years']) : null;
+                    $match['location'] = $job['location'];
+                    $match['salaryRange'] = $job['salary_range'];
+                    $match['employmentType'] = $job['employment_type'];
+                }
+                unset($match);
+            }
+
             wp_send_json_success($data);
         } else {
             $error_message = isset($data['message']) ? $data['message'] : (isset($data['error']) ? $data['error'] : 'Unknown error occurred');

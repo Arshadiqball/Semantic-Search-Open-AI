@@ -218,34 +218,24 @@ class JobMatchingService {
       const existingMatches = await this.getStoredMatches(resumeId, clientId, limit);
       
       if (existingMatches.length > 0) {
-        console.log('✅ Found', existingMatches.length, 'cached matches - REUSING! No OpenAI/GPT calls needed.');
+        console.log('✅ Found', existingMatches.length, 'cached matches - REUSING! No extra OpenAI calls needed.');
         
-        // Convert stored matches to expected format and return latest 10
+        // Convert stored matches to expected format (Node only returns IDs + scores)
         const formattedMatches = existingMatches.slice(0, limit).map(match => ({
-          jobId: match.job_id,
-          title: match.title,
-          company: match.company,
-          description: match.description,
-          requiredSkills: match.required_skills,
-          preferredSkills: match.preferred_skills,
-          experienceYears: match.experience_years,
-          location: match.location,
-          salaryRange: match.salary_range,
-          employmentType: match.employment_type,
+          jobId: match.wp_job_id,
           semanticSimilarity: match.similarity_score,
           skillMatchScore: match.similarity_score * 100,
           combinedScore: match.similarity_score,
           directMatches: match.matched_skills || [],
           relatedMatches: [],
           missingSkills: [],
-          matchReasoning: 'Cached result from previous analysis',
+          matchReasoning: 'Cached semantic match (job details resolved by WordPress).',
         }));
         
-        // Ensure we return exactly the latest 10 (or limit) matches
-        return formattedMatches.slice(0, limit);
+        return formattedMatches;
       }
       
-      console.log('⚡ No cached matches found - running full analysis...');
+      console.log('⚡ No cached matches found - running semantic search...');
       
       // Get resume data (tenant-aware)
       const resumeQuery = `
@@ -287,90 +277,36 @@ class JobMatchingService {
           return { 
             wp_job_id: row.wp_job_id, 
             similarity_score: similarity,
-            embedding: row.embedding // Keep for AI analysis
           };
         })
         .filter(item => item.similarity_score >= threshold)
         .sort((a, b) => b.similarity_score - a.similarity_score)
-        .slice(0, limit * 2); // Get more candidates for AI analysis
+        .slice(0, limit); // Only need top N for response
 
-      // Get client's WordPress database configuration
-      const dbConfig = await clientService.getClientDbConfig(clientId);
-      
-      if (!dbConfig) {
-        throw new Error('WordPress database configuration not found. Please re-register the client.');
+      if (embeddingsWithScores.length === 0) {
+        console.log('⚠️ No jobs passed the similarity threshold');
+        return [];
       }
 
-      // Fetch actual job data from WordPress database
-      const wpJobIds = embeddingsWithScores.map(item => item.wp_job_id);
-      const wpJobs = await wordpressJobService.fetchJobsByIds(
-        dbConfig,
-        dbConfig.tablePrefix,
-        wpJobIds
-      );
+      // Build matches without hitting the client's WordPress DB.
+      // WordPress will resolve jobId → full job details using its own database.
+      const matches = embeddingsWithScores.map(item => ({
+        jobId: item.wp_job_id,
+        semanticSimilarity: parseFloat(item.similarity_score.toFixed(3)),
+        skillMatchScore: parseFloat((item.similarity_score * 100).toFixed(1)),
+        combinedScore: parseFloat(item.similarity_score.toFixed(3)),
+        directMatches: [],
+        relatedMatches: [],
+        missingSkills: [],
+        matchReasoning: 'Semantic similarity based on embeddings (job details resolved by WordPress).',
+      }));
 
-      // Map WordPress jobs with their similarity scores
-      const jobsWithScores = wpJobs.map(wpJob => {
-        const embeddingData = embeddingsWithScores.find(e => e.wp_job_id === String(wpJob.id));
-        return {
-          ...wpJob,
-          similarity_score: embeddingData.similarity_score,
-          embedding: embeddingData.embedding, // For AI analysis
-        };
-      });
-
-      // Enhance matches with AI-powered skill analysis
-      const enhancedMatches = await Promise.all(
-        jobsWithScores.map(async (job) => {
-          const candidateSkills = parsedData.skills || [];
-          const jobRequiredSkills = job.required_skills || [];
-
-          // Use GPT to analyze skill compatibility
-          const skillAnalysis = await embeddingService.analyzeSkillMatch(
-            candidateSkills,
-            jobRequiredSkills
-          );
-
-          // Calculate combined score
-          // 70% semantic similarity + 30% GPT skill match score
-          const combinedScore = (
-            job.similarity_score * 0.7 +
-            (skillAnalysis.matchScore / 100) * 0.3
-          );
-
-          return {
-            jobId: job.id, // WordPress job ID
-            title: job.title,
-            company: job.company,
-            description: job.description,
-            requiredSkills: job.required_skills,
-            preferredSkills: job.preferred_skills,
-            experienceYears: job.experience_years,
-            location: job.location,
-            salaryRange: job.salary_range,
-            employmentType: job.employment_type,
-            semanticSimilarity: parseFloat(job.similarity_score.toFixed(3)),
-            skillMatchScore: skillAnalysis.matchScore,
-            combinedScore: parseFloat(combinedScore.toFixed(3)),
-            directMatches: skillAnalysis.directMatches,
-            relatedMatches: skillAnalysis.relatedMatches,
-            missingSkills: skillAnalysis.missingSkills,
-            matchReasoning: skillAnalysis.reasoning,
-          };
-        })
-      );
-
-      // Sort by combined score and limit to latest 10 results
-      const sortedMatches = enhancedMatches
-        .sort((a, b) => b.combinedScore - a.combinedScore)
-        .slice(0, limit);
-
-      // Store matches in database (tenant-aware)
-      for (const match of sortedMatches) {
+      // Store matches in database (tenant-aware) for caching
+      for (const match of matches) {
         await this.storeJobMatch(resumeId, clientId, match);
       }
 
-      return sortedMatches;
+      return matches;
     } catch (error) {
       console.error('Error finding matching jobs:', error);
       throw new Error('Failed to find matching jobs: ' + error.message);
@@ -422,7 +358,7 @@ class JobMatchingService {
    */
   async getStoredMatches(resumeId, clientId, limit = 10) {
     try {
-      // Get stored match records (job_id now stores wp_job_id)
+      // Get stored match records (job_id stores wp_job_id)
       const query = `
         SELECT 
           jm.id,
@@ -443,44 +379,13 @@ class JobMatchingService {
         return [];
       }
 
-      // Get client's WordPress database configuration
-      const dbConfig = await clientService.getClientDbConfig(clientId);
-      
-      if (!dbConfig) {
-        console.error('WordPress database configuration not found for cached matches');
-        return [];
-      }
-
-      // Fetch actual job data from WordPress database
-      const wpJobIds = result.rows.map(row => String(row.wp_job_id));
-      const wpJobs = await wordpressJobService.fetchJobsByIds(
-        dbConfig,
-        dbConfig.tablePrefix,
-        wpJobIds
-      );
-
-      // Map WordPress jobs with stored match data
-      return result.rows.map(row => {
-        const wpJob = wpJobs.find(job => String(job.id) === String(row.wp_job_id));
-        if (!wpJob) {
-          return null; // Job might have been deleted from WordPress
-        }
-        return {
-          job_id: wpJob.id,
-          title: wpJob.title,
-          company: wpJob.company,
-          description: wpJob.description,
-          required_skills: wpJob.required_skills,
-          preferred_skills: wpJob.preferred_skills,
-          experience_years: wpJob.experience_years,
-          location: wpJob.location,
-          salary_range: wpJob.salary_range,
-          employment_type: wpJob.employment_type,
-          similarity_score: row.similarity_score,
-          matched_skills: row.matched_skills,
-          created_at: row.created_at,
-        };
-      }).filter(match => match !== null); // Remove null entries
+      // Return minimal data (IDs + scores). WordPress will resolve job details.
+      return result.rows.map(row => ({
+        wp_job_id: row.wp_job_id,
+        similarity_score: row.similarity_score,
+        matched_skills: row.matched_skills,
+        created_at: row.created_at,
+      }));
     } catch (error) {
       console.error('Error getting stored matches:', error);
       return [];
