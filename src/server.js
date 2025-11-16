@@ -442,7 +442,33 @@ app.get('/api/resume/:id/matches', authenticateApiKey, async (req, res) => {
 
     const clientId = req.client.id;
     const limit = parseInt(req.query.limit) || 10;
-    const matches = await jobMatchingService.getStoredMatches(resumeId, clientId, limit);
+    const threshold = parseFloat(req.query.threshold) || 0.5;
+
+    // First try to use cached matches
+    let matches = await jobMatchingService.getStoredMatches(resumeId, clientId, limit);
+
+    // If nothing cached, recompute from embeddings (no extra OpenAI calls)
+    if (!matches || matches.length === 0) {
+      console.log(`[API] No stored matches for resume ${resumeId}, recomputing from embeddings...`);
+      const freshMatches = await jobMatchingService.findMatchingJobs(
+        resumeId,
+        clientId,
+        limit,
+        threshold
+      );
+
+      // Map fresh matches (jobId + semanticSimilarity) into the lightweight format
+      matches = freshMatches.map(m => ({
+        wp_job_id: m.jobId,
+        similarity_score: m.semanticSimilarity,
+        matched_skills: [
+          ...(m.directMatches || []),
+          ...((m.relatedMatches || []).map(rm => rm.candidateSkill)),
+        ],
+        created_at: new Date().toISOString(),
+      }));
+    }
+
     res.json({ success: true, resumeId, matchCount: matches.length, matches });
   } catch (err) {
     console.error('Error getting matches:', err);

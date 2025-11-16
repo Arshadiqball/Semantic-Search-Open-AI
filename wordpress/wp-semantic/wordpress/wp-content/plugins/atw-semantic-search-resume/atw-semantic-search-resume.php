@@ -744,7 +744,8 @@ class ATW_Semantic_Search_Resume {
         global $wpdb;
 
         $email = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
-        $resume_id = isset($_POST['resume_id']) ? intval($_POST['resume_id']) : null;
+        $resume_id = isset($_POST['resume_id']) ? intval($_POST['resume_id']) : 0;
+        $existing_resume_id = isset($_POST['existing_resume_id']) ? intval($_POST['existing_resume_id']) : 0;
 
         $focus = isset($_POST['focus']) ? sanitize_text_field(wp_unslash($_POST['focus'])) : '';
         $transition_stage = isset($_POST['transition_stage']) ? sanitize_text_field(wp_unslash($_POST['transition_stage'])) : '';
@@ -768,6 +769,11 @@ class ATW_Semantic_Search_Resume {
             if ($line !== '') {
                 $tech_stack[] = sanitize_text_field($line);
             }
+        }
+
+        // If no new resume_id was provided, keep the existing one (if any)
+        if ($resume_id <= 0 && $existing_resume_id > 0) {
+            $resume_id = $existing_resume_id;
         }
 
         $table = $wpdb->prefix . 'atw_semantic_profiles';
