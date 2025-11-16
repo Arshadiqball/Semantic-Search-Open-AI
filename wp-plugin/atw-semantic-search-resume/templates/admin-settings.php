@@ -33,57 +33,8 @@ if (isset($_POST['atw_semantic_save_settings']) && check_admin_referer('atw_sema
         $plugin->delete_setting('recommended_jobs_count');
     }
     
-    // Jobs table & column mapping
-    if (!empty($_POST['atw_jobs_table_name'])) {
-        $plugin->save_setting('jobs_table_name', sanitize_text_field($_POST['atw_jobs_table_name']));
-    } else {
-        $plugin->delete_setting('jobs_table_name');
-    }
-
-    $mapping_fields = array(
-        'jobs_col_id',
-        'jobs_col_title',
-        'jobs_col_company',
-        'jobs_col_description',
-        'jobs_col_required_skills',
-        'jobs_col_preferred_skills',
-        'jobs_col_experience_years',
-        'jobs_col_location',
-        'jobs_col_salary_range',
-        'jobs_col_employment_type',
-        'jobs_col_status',
-    );
-
-    foreach ($mapping_fields as $field_key) {
-        if (isset($_POST[$field_key]) && $_POST[$field_key] !== '') {
-            $plugin->save_setting($field_key, sanitize_text_field(wp_unslash($_POST[$field_key])));
-        } else {
-            $plugin->delete_setting($field_key);
-        }
-    }
-
-    if ( isset( $_POST['atw_jobs_status_active_value'] ) && $_POST['atw_jobs_status_active_value'] !== '' ) {
-        $plugin->save_setting( 'jobs_status_active_value', sanitize_text_field( $_POST['atw_jobs_status_active_value'] ) );
-    } else {
-        $plugin->delete_setting( 'jobs_status_active_value' );
-    }
-
-    // Handle job categories
-    if (isset($_POST['atw_semantic_job_categories']) && !empty($_POST['atw_semantic_job_categories'])) {
-        $categories = array_map('sanitize_text_field', $_POST['atw_semantic_job_categories']);
-        $plugin->save_setting('job_categories', $categories);
-    } else {
-        $plugin->delete_setting('job_categories');
-    }
-    
-    // Handle tech stack
-    if (isset($_POST['atw_semantic_tech_stack']) && !empty(trim($_POST['atw_semantic_tech_stack']))) {
-        $tech_stack = sanitize_textarea_field($_POST['atw_semantic_tech_stack']);
-        $tech_stack_array = array_filter(array_map('trim', explode("\n", $tech_stack)));
-        $plugin->save_setting('tech_stack', $tech_stack_array);
-    } else {
-        $plugin->delete_setting('tech_stack');
-    }
+    // (Job categories & tech stack preferences are now managed on the frontend
+    //  in the customer profile, so we no longer handle them on the admin page.)
     
     echo '<div class="notice notice-success is-dismissible"><p><strong>' . __('Success!', 'atw-semantic-search') . '</strong> ' . __('Settings saved successfully!', 'atw-semantic-search') . '</p></div>';
 }
@@ -347,41 +298,6 @@ $common_tech_stack = array(
                     </table>
                 </div>
                 
-                <!-- Job Categories -->
-                <div class="atw-semantic-section">
-                    <h2><?php _e('Job Categories', 'atw-semantic-search'); ?></h2>
-                    <p class="description"><?php _e('Select default job categories to filter by', 'atw-semantic-search'); ?></p>
-                    
-                    <div class="atw-semantic-checkbox-group">
-                        <?php foreach ($common_categories as $category): ?>
-                            <label style="display: block; margin: 5px 0;">
-                                <input type="checkbox" 
-                                       name="atw_semantic_job_categories[]" 
-                                       value="<?php echo esc_attr($category); ?>"
-                                       <?php checked(is_array($job_categories) && in_array($category, $job_categories)); ?> />
-                                <?php echo esc_html($category); ?>
-                            </label>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                
-                <!-- Tech Stack -->
-                <div class="atw-semantic-section">
-                    <h2><?php _e('Tech Stack Preferences', 'atw-semantic-search'); ?></h2>
-                    <p class="description"><?php _e('Enter preferred technologies (one per line). These will be used as default filters.', 'atw-semantic-search'); ?></p>
-                    
-                    <textarea id="atw_semantic_tech_stack" 
-                              name="atw_semantic_tech_stack" 
-                              rows="10" 
-                              class="large-text code"
-                              placeholder="<?php _e('JavaScript&#10;React&#10;Node.js&#10;Python&#10;...', 'atw-semantic-search'); ?>"><?php echo esc_textarea(is_array($tech_stack) && !empty($tech_stack) ? implode("\n", $tech_stack) : ''); ?></textarea>
-                    
-                    <p class="description">
-                        <strong><?php _e('Common technologies:', 'atw-semantic-search'); ?></strong><br>
-                        <?php echo esc_html(implode(', ', $common_tech_stack)); ?>
-                    </p>
-                </div>
-                
                 <?php submit_button(__('Save Settings', 'atw-semantic-search'), 'primary', 'atw_semantic_save_settings'); ?>
             </form>
         </div>
@@ -389,14 +305,22 @@ $common_tech_stack = array(
         <!-- Sidebar -->
         <div class="atw-semantic-admin-sidebar">
             <div class="atw-semantic-widget">
-                <h3><?php _e('Shortcode', 'atw-semantic-search'); ?></h3>
-                <p><?php _e('Use this shortcode to display the job search form on any page:', 'atw-semantic-search'); ?></p>
-                <code>[atw_semantic_job_search]</code>
-                <p class="description"><?php _e('Options:', 'atw-semantic-search'); ?></p>
-                <ul>
-                    <li><code>title</code> - Custom title (default: "Find Your Dream Job")</li>
-                    <li><code>show_upload</code> - Show resume upload (yes/no, default: yes)</li>
-                </ul>
+                <h3><?php _e('Shortcodes', 'atw-semantic-search'); ?></h3>
+                <p><?php _e('Use these shortcodes to integrate the semantic search experience:', 'atw-semantic-search'); ?></p>
+                <p>
+                    <strong><?php _e('Jobs Page (read-only results):', 'atw-semantic-search'); ?></strong><br>
+                    <code>[atw_semantic_job_search]</code><br>
+                    <span class="description">
+                        <?php _e('Shows recommended jobs based on the logged-in user\'s saved profile and resume.', 'atw-semantic-search'); ?>
+                    </span>
+                </p>
+                <p style="margin-top: 10px;">
+                    <strong><?php _e('Profile Page (resume + preferences):', 'atw-semantic-search'); ?></strong><br>
+                    <code>[atw_semantic_profile]</code><br>
+                    <span class="description">
+                        <?php _e('Customers upload their resume and set preferences here. The jobs page then uses this profile.', 'atw-semantic-search'); ?>
+                    </span>
+                </p>
             </div>
             
             <div class="atw-semantic-widget">

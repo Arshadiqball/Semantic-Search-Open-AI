@@ -69,12 +69,15 @@ class ATW_Semantic_Search_Resume {
         // Frontend hooks
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_scripts'));
         add_shortcode('atw_semantic_job_search', array($this, 'render_job_search_shortcode'));
+        add_shortcode('atw_semantic_profile', array($this, 'render_profile_shortcode'));
         
         // AJAX handlers
         add_action('wp_ajax_atw_upload_resume', array($this, 'handle_resume_upload'));
         add_action('wp_ajax_nopriv_atw_upload_resume', array($this, 'handle_resume_upload'));
         add_action('wp_ajax_atw_get_jobs', array($this, 'handle_get_jobs'));
         add_action('wp_ajax_nopriv_atw_get_jobs', array($this, 'handle_get_jobs'));
+        add_action('wp_ajax_atw_save_profile', array($this, 'handle_save_profile'));
+        add_action('wp_ajax_atw_get_profile_jobs', array($this, 'handle_get_profile_jobs'));
         add_action('wp_ajax_atw_generate_dummy_jobs', array($this, 'handle_generate_dummy_jobs'));
         add_action('wp_ajax_atw_sync_wordpress_jobs', array($this, 'handle_sync_wordpress_jobs'));
     }
@@ -89,6 +92,9 @@ class ATW_Semantic_Search_Resume {
         // Create wp_jobs table
         require_once(plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php');
         ATW_Jobs_Manager::create_jobs_table();
+
+        // Create profiles table for per-user preferences and resume linkage
+        $this->create_profiles_table();
         
         // Flush rewrite rules if needed
         flush_rewrite_rules();
@@ -114,6 +120,33 @@ class ATW_Semantic_Search_Resume {
         ) $charset_collate;";
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+
+    /**
+     * Create profiles table (per-user preferences and resume mapping)
+     */
+    private function create_profiles_table() {
+        global $wpdb;
+
+        $table_name = $wpdb->prefix . 'atw_semantic_profiles';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) UNSIGNED NOT NULL,
+            resume_id bigint(20) DEFAULT NULL,
+            job_categories longtext NULL,
+            tech_stack longtext NULL,
+            focus varchar(50) DEFAULT NULL,
+            transition_stage varchar(50) DEFAULT NULL,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY user_id (user_id)
+        ) $charset_collate;";
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
     }
     
@@ -383,7 +416,7 @@ class ATW_Semantic_Search_Resume {
     /**
      * Add admin menu
      * Top-level: ATW
-     * Sub-menus: Search Settings, Analytics
+     * Sub-menus: Search Settings, Analytics, Map Structure
      */
     public function add_admin_menu() {
         $parent_slug = 'atw-semantic';
@@ -417,6 +450,16 @@ class ATW_Semantic_Search_Resume {
             'manage_options',
             'atw-semantic-analytics',
             array($this, 'render_analytics_page')
+        );
+
+        // Sub-menu: Map Structure (jobs table/columns mapping)
+        add_submenu_page(
+            $parent_slug,
+            __('Map Structure', 'atw-semantic-search'),
+            __('Map Structure', 'atw-semantic-search'),
+            'manage_options',
+            'atw-semantic-map-structure',
+            array($this, 'render_map_structure_page')
         );
     }
     
@@ -484,6 +527,194 @@ class ATW_Semantic_Search_Resume {
         
         include ATW_SEMANTIC_PLUGIN_DIR . 'templates/admin-analytics.php';
     }
+
+    /**
+     * Render Map Structure page (jobs table / column mapping)
+     */
+    public function render_map_structure_page() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        global $wpdb;
+
+        $notice = '';
+
+        if (isset($_POST['atw_semantic_save_mapping']) && check_admin_referer('atw_semantic_map_structure_nonce')) {
+            // Save selected table
+            if (!empty($_POST['atw_jobs_table_name'])) {
+                $this->save_setting('jobs_table_name', sanitize_text_field($_POST['atw_jobs_table_name']));
+            } else {
+                $this->delete_setting('jobs_table_name');
+            }
+
+            // Save column mappings
+            $mapping_fields = array(
+                'jobs_col_id',
+                'jobs_col_title',
+                'jobs_col_company',
+                'jobs_col_description',
+                'jobs_col_required_skills',
+                'jobs_col_preferred_skills',
+                'jobs_col_experience_years',
+                'jobs_col_location',
+                'jobs_col_salary_range',
+                'jobs_col_employment_type',
+                'jobs_col_status',
+            );
+
+            foreach ($mapping_fields as $field_key) {
+                if (isset($_POST[$field_key]) && $_POST[$field_key] !== '') {
+                    $this->save_setting($field_key, sanitize_text_field(wp_unslash($_POST[$field_key])));
+                } else {
+                    $this->delete_setting($field_key);
+                }
+            }
+
+            // Save active status value
+            if (isset($_POST['atw_jobs_status_active_value']) && $_POST['atw_jobs_status_active_value'] !== '') {
+                $this->save_setting('jobs_status_active_value', sanitize_text_field($_POST['atw_jobs_status_active_value']));
+            } else {
+                $this->delete_setting('jobs_status_active_value');
+            }
+
+            $notice = __('Mapping saved successfully.', 'atw-semantic-search');
+        }
+
+        // Load current mapping
+        $jobs_table_name      = $this->get_setting('jobs_table_name', $wpdb->prefix . 'jobs');
+        $jobs_col_id          = $this->get_setting('jobs_col_id', 'id');
+        $jobs_col_title       = $this->get_setting('jobs_col_title', 'title');
+        $jobs_col_company     = $this->get_setting('jobs_col_company', 'company');
+        $jobs_col_description = $this->get_setting('jobs_col_description', 'description');
+        $jobs_col_required    = $this->get_setting('jobs_col_required_skills', 'required_skills');
+        $jobs_col_preferred   = $this->get_setting('jobs_col_preferred_skills', 'preferred_skills');
+        $jobs_col_experience  = $this->get_setting('jobs_col_experience_years', 'experience_years');
+        $jobs_col_location    = $this->get_setting('jobs_col_location', 'location');
+        $jobs_col_salary      = $this->get_setting('jobs_col_salary_range', 'salary_range');
+        $jobs_col_employment  = $this->get_setting('jobs_col_employment_type', 'employment_type');
+        $jobs_col_status      = $this->get_setting('jobs_col_status', 'status');
+        $jobs_status_active   = $this->get_setting('jobs_status_active_value', 'active');
+
+        // Get list of tables
+        $tables = $wpdb->get_col('SHOW TABLES');
+
+        // Get columns for selected table
+        $columns = array();
+        if (!empty($jobs_table_name)) {
+            $safe_table = esc_sql($jobs_table_name);
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $columns_raw = $wpdb->get_results("SHOW COLUMNS FROM {$safe_table}", ARRAY_A);
+            if (is_array($columns_raw)) {
+                foreach ($columns_raw as $col) {
+                    if (!empty($col['Field'])) {
+                        $columns[] = $col['Field'];
+                    }
+                }
+            }
+        }
+
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e('Map Job Structure', 'atw-semantic-search'); ?></h1>
+
+            <?php if ($notice): ?>
+                <div class="notice notice-success is-dismissible">
+                    <p><strong><?php echo esc_html($notice); ?></strong></p>
+                </div>
+            <?php endif; ?>
+
+            <p class="description">
+                <?php esc_html_e('Map your existing jobs table and columns to the ATW Semantic Search job schema. This allows the plugin to work with your custom job storage.', 'atw-semantic-search'); ?>
+            </p>
+
+            <form method="post">
+                <?php wp_nonce_field('atw_semantic_map_structure_nonce'); ?>
+
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
+                            <label for="atw_jobs_table_name"><?php esc_html_e('Jobs table', 'atw-semantic-search'); ?></label>
+                        </th>
+                        <td>
+                            <select name="atw_jobs_table_name" id="atw_jobs_table_name">
+                                <?php foreach ($tables as $table): ?>
+                                    <option value="<?php echo esc_attr($table); ?>" <?php selected($jobs_table_name, $table); ?>>
+                                        <?php echo esc_html($table); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p class="description">
+                                <?php esc_html_e('Select the table where your jobs are stored.', 'atw-semantic-search'); ?>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                <?php if (!empty($columns)): ?>
+                    <h2><?php esc_html_e('Column Mapping', 'atw-semantic-search'); ?></h2>
+                    <table class="form-table">
+                        <?php
+                        // Helper to render a select row
+                        $render_select = function ($label, $name, $current) use ($columns) {
+                            ?>
+                            <tr>
+                                <th scope="row">
+                                    <label for="<?php echo esc_attr($name); ?>"><?php echo esc_html($label); ?></label>
+                                </th>
+                                <td>
+                                    <select name="<?php echo esc_attr($name); ?>" id="<?php echo esc_attr($name); ?>">
+                                        <option value=""><?php esc_html_e('— Select column —', 'atw-semantic-search'); ?></option>
+                                        <?php foreach ($columns as $column): ?>
+                                            <option value="<?php echo esc_attr($column); ?>" <?php selected($current, $column); ?>>
+                                                <?php echo esc_html($column); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                            <?php
+                        };
+
+                        $render_select(__('Job ID column', 'atw-semantic-search'), 'jobs_col_id', $jobs_col_id);
+                        $render_select(__('Title column', 'atw-semantic-search'), 'jobs_col_title', $jobs_col_title);
+                        $render_select(__('Company column', 'atw-semantic-search'), 'jobs_col_company', $jobs_col_company);
+                        $render_select(__('Description column', 'atw-semantic-search'), 'jobs_col_description', $jobs_col_description);
+                        $render_select(__('Required skills column', 'atw-semantic-search'), 'jobs_col_required_skills', $jobs_col_required);
+                        $render_select(__('Preferred skills column', 'atw-semantic-search'), 'jobs_col_preferred_skills', $jobs_col_preferred);
+                        $render_select(__('Experience (years) column', 'atw-semantic-search'), 'jobs_col_experience_years', $jobs_col_experience);
+                        $render_select(__('Location column', 'atw-semantic-search'), 'jobs_col_location', $jobs_col_location);
+                        $render_select(__('Salary range column', 'atw-semantic-search'), 'jobs_col_salary_range', $jobs_col_salary);
+                        $render_select(__('Employment type column', 'atw-semantic-search'), 'jobs_col_employment_type', $jobs_col_employment);
+                        $render_select(__('Status column', 'atw-semantic-search'), 'jobs_col_status', $jobs_col_status);
+                        ?>
+                        <tr>
+                            <th scope="row">
+                                <label for="atw_jobs_status_active_value"><?php esc_html_e('Active status value', 'atw-semantic-search'); ?></label>
+                            </th>
+                            <td>
+                                <input type="text"
+                                       id="atw_jobs_status_active_value"
+                                       name="atw_jobs_status_active_value"
+                                       value="<?php echo esc_attr($jobs_status_active); ?>"
+                                       class="regular-text" />
+                                <p class="description">
+                                    <?php esc_html_e('Value in the status column that indicates an active job (e.g. active, publish, 1).', 'atw-semantic-search'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                <?php else: ?>
+                    <p class="description">
+                        <?php esc_html_e('No columns could be detected for the selected table. Please ensure the table exists and you have sufficient permissions.', 'atw-semantic-search'); ?>
+                    </p>
+                <?php endif; ?>
+
+                <?php submit_button(__('Save Mapping', 'atw-semantic-search'), 'primary', 'atw_semantic_save_mapping'); ?>
+            </form>
+        </div>
+        <?php
+    }
     
     /**
      * Render job search shortcode
@@ -491,11 +722,251 @@ class ATW_Semantic_Search_Resume {
     public function render_job_search_shortcode($atts) {
         $atts = shortcode_atts(array(
             'title' => 'Find Your Dream Job',
-            'show_upload' => 'yes',
+            'show_upload' => 'no',
         ), $atts);
         
         ob_start();
         include ATW_SEMANTIC_PLUGIN_DIR . 'templates/job-search.php';
+        return ob_get_clean();
+    }
+
+    /**
+     * Handle saving user profile (preferences + resumeId)
+     */
+    public function handle_save_profile() {
+        check_ajax_referer('atw_semantic_nonce', 'nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error(array('message' => 'You must be logged in to save your profile.'));
+        }
+
+        $user_id = get_current_user_id();
+        global $wpdb;
+
+        $email = isset($_POST['email']) ? sanitize_email(wp_unslash($_POST['email'])) : '';
+        $resume_id = isset($_POST['resume_id']) ? intval($_POST['resume_id']) : 0;
+        $existing_resume_id = isset($_POST['existing_resume_id']) ? intval($_POST['existing_resume_id']) : 0;
+
+        $focus = isset($_POST['focus']) ? sanitize_text_field(wp_unslash($_POST['focus'])) : '';
+        $transition_stage = isset($_POST['transition_stage']) ? sanitize_text_field(wp_unslash($_POST['transition_stage'])) : '';
+
+        $job_categories = array();
+        if (isset($_POST['job_categories'])) {
+            $raw_categories = $_POST['job_categories'];
+            if (!is_array($raw_categories)) {
+                $raw_categories = array($raw_categories);
+            }
+            foreach ($raw_categories as $cat) {
+                $job_categories[] = sanitize_text_field(wp_unslash($cat));
+            }
+        }
+
+        $tech_stack_input = isset($_POST['tech_stack']) ? wp_unslash($_POST['tech_stack']) : '';
+        $tech_stack_lines = preg_split('/\r\n|\r|\n/', $tech_stack_input);
+        $tech_stack = array();
+        foreach ($tech_stack_lines as $line) {
+            $line = trim($line);
+            if ($line !== '') {
+                $tech_stack[] = sanitize_text_field($line);
+            }
+        }
+
+        // If no new resume_id was provided, keep the existing one (if any)
+        if ($resume_id <= 0 && $existing_resume_id > 0) {
+            $resume_id = $existing_resume_id;
+        }
+
+        $table = $wpdb->prefix . 'atw_semantic_profiles';
+
+        $data = array(
+            'user_id'          => $user_id,
+            'resume_id'        => $resume_id,
+            'job_categories'   => !empty($job_categories) ? wp_json_encode($job_categories) : null,
+            'tech_stack'       => !empty($tech_stack) ? wp_json_encode($tech_stack) : null,
+            'focus'            => $focus,
+            'transition_stage' => $transition_stage,
+        );
+
+        $formats = array('%d', '%d', '%s', '%s', '%s', '%s');
+
+        $existing = $wpdb->get_var(
+            $wpdb->prepare("SELECT id FROM $table WHERE user_id = %d", $user_id)
+        );
+
+        if ($existing) {
+            $wpdb->update(
+                $table,
+                $data,
+                array('user_id' => $user_id),
+                $formats,
+                array('%d')
+            );
+        } else {
+            $wpdb->insert(
+                $table,
+                $data,
+                $formats
+            );
+        }
+
+        wp_send_json_success(array(
+            'message' => 'Profile saved successfully.',
+            'resumeId' => $resume_id,
+        ));
+    }
+
+    /**
+     * Get jobs for current user based on stored resume/profile
+     */
+    public function handle_get_profile_jobs() {
+        check_ajax_referer('atw_semantic_nonce', 'nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error(array('message' => 'You must be logged in to see personalised jobs.'));
+        }
+
+        $user_id = get_current_user_id();
+        global $wpdb;
+
+        $profiles_table = $wpdb->prefix . 'atw_semantic_profiles';
+        $profile = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM $profiles_table WHERE user_id = %d", $user_id),
+            ARRAY_A
+        );
+
+        if (!$profile || empty($profile['resume_id'])) {
+            wp_send_json_error(array(
+                'message' => 'We could not find your resume. Please upload it and set your preferences on your profile page.'
+            ));
+        }
+
+        $resume_id = intval($profile['resume_id']);
+
+        // Get API config
+        $api_key = $this->get_setting('api_key');
+        $api_base = $this->get_setting('api_base_url');
+        if (empty($api_base)) {
+            $api_base = ATW_SEMANTIC_API_BASE;
+        }
+        if (empty($api_key)) {
+            wp_send_json_error(array('message' => 'API key not configured. Please contact the site administrator.'));
+        }
+
+        // Threshold and limit from global settings
+        $threshold = $this->get_setting('threshold');
+        if (empty($threshold)) {
+            $threshold = 0.5;
+        }
+        $limit = $this->get_setting('recommended_jobs_count');
+        if (empty($limit)) {
+            $limit = 10;
+        }
+
+        $url = trailingslashit($api_base) . 'api/resume/' . $resume_id . '/matches';
+        $url = add_query_arg(
+            array(
+                'limit' => intval($limit),
+                'threshold' => floatval($threshold),
+            ),
+            $url
+        );
+
+        $args = array(
+            'headers' => array(
+                'X-API-Key' => $api_key,
+            ),
+            'timeout' => 60,
+            'sslverify' => false,
+        );
+
+        $response = wp_remote_get($url, $args);
+
+        if (is_wp_error($response)) {
+            wp_send_json_error(array(
+                'message' => 'Failed to fetch jobs from semantic server: ' . $response->get_error_message(),
+            ));
+        }
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if ($code !== 200 || !is_array($data)) {
+            wp_send_json_error(array(
+                'message' => 'Unexpected response from semantic server when fetching matches.',
+            ));
+        }
+
+        // We expect data.matches with wp_job_id + similarity
+        $matches = isset($data['matches']) && is_array($data['matches']) ? $data['matches'] : array();
+
+        if (empty($matches)) {
+            wp_send_json_success(array(
+                'matches' => array(),
+                'matchCount' => 0,
+            ));
+        }
+
+        // Enrich with local WP job details
+        if (!class_exists('ATW_Jobs_Manager')) {
+            require_once plugin_dir_path(__FILE__) . 'includes/class-jobs-manager.php';
+        }
+
+        $enriched = array();
+        foreach ($matches as $match) {
+            if (!isset($match['wp_job_id'])) {
+                continue;
+            }
+
+            $job = ATW_Jobs_Manager::get_job($match['wp_job_id']);
+            if (!$job) {
+                continue;
+            }
+
+            $job_entry = array(
+                'id' => $match['wp_job_id'],
+                'title' => isset($job['title']) ? $job['title'] : '',
+                'company' => isset($job['company']) ? $job['company'] : '',
+                'location' => isset($job['location']) ? $job['location'] : '',
+                'description' => isset($job['description']) ? $job['description'] : '',
+                'requiredSkills' => array(),
+                'employmentType' => isset($job['employment_type']) ? $job['employment_type'] : '',
+                'salaryRange' => isset($job['salary_range']) ? $job['salary_range'] : '',
+                'semanticSimilarity' => isset($match['similarity']) ? $match['similarity'] : null,
+            );
+
+            if (!empty($job['required_skills'])) {
+                if (is_array($job['required_skills'])) {
+                    $job_entry['requiredSkills'] = $job['required_skills'];
+                } else {
+                    $skills = array_map('trim', explode(',', $job['required_skills']));
+                    $job_entry['requiredSkills'] = array_filter($skills);
+                }
+            }
+
+            $enriched[] = $job_entry;
+        }
+
+        wp_send_json_success(array(
+            'matches' => $enriched,
+            'matchCount' => count($enriched),
+        ));
+    }
+    
+    /**
+     * Render profile shortcode (preferences + resume upload)
+     */
+    public function render_profile_shortcode($atts) {
+        if (!is_user_logged_in()) {
+            return '<p>' . esc_html__('You must be logged in to manage your profile.', 'atw-semantic-search') . '</p>';
+        }
+
+        $atts = shortcode_atts(array(
+            'title' => 'Your Career Profile',
+        ), $atts);
+
+        ob_start();
+        include ATW_SEMANTIC_PLUGIN_DIR . 'templates/profile.php';
         return ob_get_clean();
     }
     

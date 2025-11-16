@@ -6,7 +6,7 @@
     'use strict';
     
     $(document).ready(function() {
-        const $form = $('#atw-semantic-resume-form');
+        const $profileForm = $('#atw-semantic-profile-form');
         const $results = $('#atw-semantic-results');
         const $error = $('#atw-semantic-error');
         const $loading = $('#atw-semantic-loading');
@@ -16,9 +16,21 @@
         const $submitBtn = $('.atw-semantic-submit-btn');
         const $btnText = $('.atw-semantic-btn-text');
         const $btnLoader = $('.atw-semantic-btn-loader');
-        
-        // Handle form submission
-        $form.on('submit', function(e) {
+        const hasProfileForm = $profileForm.length > 0;
+
+        // Jobs page: no upload form, just load jobs from stored profile
+        if (!hasProfileForm && $results.length) {
+            loadJobsFromProfile();
+            return;
+        }
+
+        // Profile page: handle resume upload + profile save
+        if (!hasProfileForm) {
+            return;
+        }
+
+        // Handle profile form submission (with optional resume upload)
+        $profileForm.on('submit', function(e) {
             e.preventDefault();
             
             // Reset UI
@@ -27,69 +39,165 @@
             $analysis.hide();
             $actionPlan.hide();
             
-            // Validate form
-            const email = $('#atw-semantic-email').val();
-            const fileInput = $('#atw-semantic-resume-file')[0];
-            
-            if (!email || !fileInput.files.length) {
-                showError('Please fill in all required fields.');
+            const email = $('#atw_profile_email').val();
+            const fileInputEl = $('#atw_profile_resume')[0];
+            const hasFile = fileInputEl && fileInputEl.files && fileInputEl.files.length > 0;
+
+            if (!email) {
+                showError('Please enter your email.');
                 return;
             }
-            
-            // Validate file type
-            const file = fileInput.files[0];
-            if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-                showError('Only PDF files are allowed.');
+
+            if (hasFile) {
+                const file = fileInputEl.files[0];
+
+                // Validate file type
+                if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                    showError('Only PDF files are allowed.');
+                    return;
+                }
+
+                // Validate file size (5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    showError('File size exceeds 5MB limit.');
+                    return;
+                }
+
+                // Show loading state
+                $submitBtn.prop('disabled', true);
+                $btnText.hide();
+                $btnLoader.show();
+                $loading.show();
+
+                // Prepare form data for resume upload
+                const formData = new FormData();
+                formData.append('action', 'atw_upload_resume');
+                formData.append('nonce', atwSemantic.nonce);
+                formData.append('email', email);
+                formData.append('resume', file);
+
+                $.ajax({
+                    url: atwSemantic.ajaxUrl,
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.success) {
+                            // Show results based on new upload
+                            displayResults(response.data);
+                            // Save profile with fresh resumeId + preferences
+                            saveProfileAfterUpload(response.data);
+                        } else {
+                            showError(response.data.message || 'An error occurred while processing your resume.');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        showError('Network error. Please try again later.');
+                        console.error('AJAX Error:', error);
+                    },
+                    complete: function() {
+                        // Reset loading state
+                        $submitBtn.prop('disabled', false);
+                        $btnText.show();
+                        $btnLoader.hide();
+                        $loading.hide();
+                    }
+                });
+            } else {
+                // No new resume, just save preferences using existing resume_id (if any)
+                const existingResumeId = $('#atw_existing_resume_id').val() || null;
+                saveProfileAfterUpload({ resumeId: existingResumeId });
+            }
+        });
+        
+        /**
+         * Save profile (preferences + resumeId) after successful upload
+         */
+        function saveProfileAfterUpload(data) {
+            const $profileFormEl = $('#atw-semantic-profile-form');
+            if (!$profileFormEl.length) {
                 return;
             }
-            
-            // Validate file size (5MB)
-            if (file.size > 5 * 1024 * 1024) {
-                showError('File size exceeds 5MB limit.');
-                return;
+
+            const resumeId = data && data.resumeId ? data.resumeId : null;
+
+            const serialized = $profileFormEl.serializeArray();
+            const payload = {
+                action: 'atw_save_profile',
+                nonce: atwSemantic.nonce,
+                resume_id: resumeId
+            };
+
+            serialized.forEach(function(field) {
+                if (field.name === 'atw_semantic_nonce') {
+                    return;
+                }
+                if (payload[field.name] !== undefined) {
+                    if (!Array.isArray(payload[field.name])) {
+                        payload[field.name] = [payload[field.name]];
+                    }
+                    payload[field.name].push(field.value);
+                } else {
+                    payload[field.name] = field.value;
+                }
+            });
+
+            $.post(atwSemantic.ajaxUrl, payload)
+                .done(function(response) {
+                    if (response && response.success) {
+                        // Update stored resume id in the form if backend returned one
+                        if (response.data && response.data.resumeId) {
+                            $('#atw_existing_resume_id').val(response.data.resumeId);
+                            $('#atw_profile_resume_status').text('Resume uploaded and linked to your profile.');
+                        }
+
+                        $('#atw_profile_status').text(
+                            response.data && response.data.message
+                                ? response.data.message
+                                : 'Profile saved.'
+                        );
+                    } else if (response && response.data && response.data.message) {
+                        $('#atw_profile_status').text(response.data.message);
+                    }
+                })
+                .fail(function() {
+                    $('#atw_profile_status').text('Failed to save profile. Please try again.');
+                });
+        }
+
+        /**
+         * Load jobs for current user from stored profile (jobs page)
+         */
+        function loadJobsFromProfile() {
+            const $resultsContent = $('#atw-semantic-results-content');
+            if ($resultsContent.length) {
+                $resultsContent.html('<p>Loading personalised jobs...</p>');
             }
-            
-            // Show loading state
-            $submitBtn.prop('disabled', true);
-            $btnText.hide();
-            $btnLoader.show();
-            $loading.show();
-            
-            // Prepare form data
-            const formData = new FormData();
-            formData.append('action', 'atw_upload_resume');
-            formData.append('nonce', atwSemantic.nonce);
-            formData.append('email', email);
-            formData.append('resume', file);
-            
-            // Send AJAX request
+
             $.ajax({
                 url: atwSemantic.ajaxUrl,
                 type: 'POST',
-                data: formData,
-                processData: false,
-                contentType: false,
+                data: {
+                    action: 'atw_get_profile_jobs',
+                    nonce: atwSemantic.nonce
+                },
                 success: function(response) {
-                    if (response.success) {
+                    if (response && response.success) {
                         displayResults(response.data);
                     } else {
-                        showError(response.data.message || 'An error occurred while processing your resume.');
+                        const msg = response && response.data && response.data.message
+                            ? response.data.message
+                            : 'Unable to load jobs. Please complete your profile first.';
+                        showError(msg);
                     }
                 },
-                error: function(xhr, status, error) {
-                    showError('Network error. Please try again later.');
-                    console.error('AJAX Error:', error);
-                },
-                complete: function() {
-                    // Reset loading state
-                    $submitBtn.prop('disabled', false);
-                    $btnText.show();
-                    $btnLoader.hide();
-                    $loading.hide();
+                error: function() {
+                    showError('Network error while loading jobs. Please try again.');
                 }
             });
-        });
-        
+        }
+
         /**
          * Display job search results
          */
@@ -103,8 +211,10 @@
                 $analysis.show();
             }
 
-            // Always show action plan after analysis
-            $actionPlan.show();
+            // Always show action plan after analysis (profile page only)
+            if ($actionPlan.length) {
+                $actionPlan.show();
+            }
             
             if (!data.matches || data.matches.length === 0) {
                 $resultsContent.html('<p>No matching jobs found. Try adjusting your resume or search criteria.</p>');
@@ -246,7 +356,7 @@
          * Show error message
          */
         function showError(message) {
-            $('#atw-semantic-error-content').text(message);
+            $('.atw-semantic-error-content').text(message);
             $error.show();
             
             // Scroll to error
