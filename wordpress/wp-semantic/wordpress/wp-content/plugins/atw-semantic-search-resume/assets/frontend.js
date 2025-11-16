@@ -9,6 +9,10 @@
         const $form = $('#atw-semantic-resume-form');
         const $results = $('#atw-semantic-results');
         const $error = $('#atw-semantic-error');
+        const $loading = $('#atw-semantic-loading');
+        const $analysis = $('#atw-semantic-analysis');
+        const $analysisSections = $('#atw-semantic-analysis-sections');
+        const $actionPlan = $('#atw-semantic-action-plan');
         const $submitBtn = $('.atw-semantic-submit-btn');
         const $btnText = $('.atw-semantic-btn-text');
         const $btnLoader = $('.atw-semantic-btn-loader');
@@ -20,6 +24,8 @@
             // Reset UI
             $results.hide();
             $error.hide();
+            $analysis.hide();
+            $actionPlan.hide();
             
             // Validate form
             const email = $('#atw-semantic-email').val();
@@ -47,6 +53,7 @@
             $submitBtn.prop('disabled', true);
             $btnText.hide();
             $btnLoader.show();
+            $loading.show();
             
             // Prepare form data
             const formData = new FormData();
@@ -78,6 +85,7 @@
                     $submitBtn.prop('disabled', false);
                     $btnText.show();
                     $btnLoader.hide();
+                    $loading.hide();
                 }
             });
         });
@@ -88,6 +96,15 @@
         function displayResults(data) {
             const $resultsContent = $('#atw-semantic-results-content');
             $resultsContent.empty();
+
+            // Build analysis / sections UI if backend provided section info
+            if (data.sections) {
+                buildAnalysisSections(data.sections);
+                $analysis.show();
+            }
+
+            // Always show action plan after analysis
+            $actionPlan.show();
             
             if (!data.matches || data.matches.length === 0) {
                 $resultsContent.html('<p>No matching jobs found. Try adjusting your resume or search criteria.</p>');
@@ -177,6 +194,52 @@
             $('html, body').animate({
                 scrollTop: $results.offset().top - 100
             }, 500);
+        }
+
+        /**
+         * Build section completeness rows (Personal, Military, Education, etc.)
+         */
+        function buildAnalysisSections(sections) {
+            $analysisSections.empty();
+
+            const config = [
+                { key: 'personalDetails', label: 'Personal Details', optional: false },
+                { key: 'militaryExperience', label: 'Military Experience', optional: true },
+                { key: 'civilianExperience', label: 'Recent Civilian Experience', optional: true },
+                { key: 'education', label: 'Education', optional: true },
+                { key: 'skills', label: 'Skills', optional: false },
+                { key: 'misc', label: 'Misc', optional: true },
+            ];
+
+            config.forEach(function (section) {
+                const isComplete = !!sections[section.key];
+
+                const $row = $('<div>').addClass('atw-semantic-section-row');
+                const $left = $('<div>').addClass('atw-semantic-section-left');
+
+                const $status = $('<div>')
+                    .addClass('atw-semantic-section-status')
+                    .addClass(isComplete ? 'complete' : 'missing')
+                    .text(isComplete ? '✔' : '!');
+
+                const $label = $('<div>').addClass('atw-semantic-section-title').text(section.label);
+
+                if (section.optional) {
+                    const $opt = $('<span>').addClass('atw-semantic-section-optional').text('(Optional)');
+                    $label.append($opt);
+                }
+
+                $left.append($status).append($label);
+
+                const $btn = $('<button>')
+                    .attr('type', 'button')
+                    .addClass('atw-semantic-section-action')
+                    .toggleClass('secondary', isComplete)
+                    .text(isComplete ? 'Edit' : 'Fill');
+
+                $row.append($left).append($btn);
+                $analysisSections.append($row);
+            });
         }
         
         /**

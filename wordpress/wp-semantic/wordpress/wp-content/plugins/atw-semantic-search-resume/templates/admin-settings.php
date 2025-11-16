@@ -33,6 +33,41 @@ if (isset($_POST['atw_semantic_save_settings']) && check_admin_referer('atw_sema
         $plugin->delete_setting('recommended_jobs_count');
     }
     
+    // Jobs table & column mapping
+    if (!empty($_POST['atw_jobs_table_name'])) {
+        $plugin->save_setting('jobs_table_name', sanitize_text_field($_POST['atw_jobs_table_name']));
+    } else {
+        $plugin->delete_setting('jobs_table_name');
+    }
+
+    $mapping_fields = array(
+        'jobs_col_id',
+        'jobs_col_title',
+        'jobs_col_company',
+        'jobs_col_description',
+        'jobs_col_required_skills',
+        'jobs_col_preferred_skills',
+        'jobs_col_experience_years',
+        'jobs_col_location',
+        'jobs_col_salary_range',
+        'jobs_col_employment_type',
+        'jobs_col_status',
+    );
+
+    foreach ($mapping_fields as $field_key) {
+        if (isset($_POST[$field_key]) && $_POST[$field_key] !== '') {
+            $plugin->save_setting($field_key, sanitize_text_field(wp_unslash($_POST[$field_key])));
+        } else {
+            $plugin->delete_setting($field_key);
+        }
+    }
+
+    if ( isset( $_POST['atw_jobs_status_active_value'] ) && $_POST['atw_jobs_status_active_value'] !== '' ) {
+        $plugin->save_setting( 'jobs_status_active_value', sanitize_text_field( $_POST['atw_jobs_status_active_value'] ) );
+    } else {
+        $plugin->delete_setting( 'jobs_status_active_value' );
+    }
+
     // Handle job categories
     if (isset($_POST['atw_semantic_job_categories']) && !empty($_POST['atw_semantic_job_categories'])) {
         $categories = array_map('sanitize_text_field', $_POST['atw_semantic_job_categories']);
@@ -72,14 +107,14 @@ if ($registration_error && !isset($_POST['atw_semantic_reregister'])) {
 }
 
 // Get current settings from custom table (all defaults are empty/null)
-$api_base_url = $plugin->get_setting('api_base_url', '');
-$threshold = $plugin->get_setting('threshold', '');
+$api_base_url           = $plugin->get_setting('api_base_url', '');
+$threshold              = $plugin->get_setting('threshold', '');
 $recommended_jobs_count = $plugin->get_setting('recommended_jobs_count', '');
-$job_categories = $plugin->get_setting('job_categories', array());
-$tech_stack = $plugin->get_setting('tech_stack', array());
-$client_id = $plugin->get_setting('client_id', '');
-$api_key = $plugin->get_setting('api_key', '');
-$is_registered = $plugin->get_setting('is_registered', false);
+$job_categories         = $plugin->get_setting('job_categories', array());
+$tech_stack             = $plugin->get_setting('tech_stack', array());
+$client_id              = $plugin->get_setting('client_id', '');
+$api_key                = $plugin->get_setting('api_key', '');
+$is_registered          = $plugin->get_setting('is_registered', false);
 
 // Common job categories
 $common_categories = array(

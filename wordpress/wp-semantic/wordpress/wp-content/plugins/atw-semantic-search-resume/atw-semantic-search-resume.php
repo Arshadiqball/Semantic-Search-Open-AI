@@ -153,8 +153,8 @@ class ATW_Semantic_Search_Resume {
         $wpdb->replace(
             $table_name,
             array(
-                'setting_key' => $key,
-                'setting_value' => $value,
+                'setting_key'  => $key,
+                'setting_value'=> $value,
             ),
             array('%s', '%s')
         );
@@ -173,7 +173,7 @@ class ATW_Semantic_Search_Resume {
             array('%s')
         );
     }
-    
+
     /**
      * Plugin deactivation
      */
@@ -219,7 +219,7 @@ class ATW_Semantic_Search_Resume {
                 $db_port = 3307;
             }
         }
-        
+
         // Prepare database configuration
         $db_config = array(
             'db_host' => $db_host,

@@ -54,11 +54,11 @@ if (isset($_POST['atw_semantic_save_settings']) && check_admin_referer('atw_sema
         'jobs_col_status',
     );
 
-    foreach ( $mapping fields as $field_key ) {
-        if ( isset( $_POST[ $field_key ] ) && $_POST[ $field key ] !== '' ) {
-            $plugin->save_setting( $field_key, sanitize_text_field( wp_unslash( $_POST[ $field_key ] ) ) );
+    foreach ($mapping_fields as $field_key) {
+        if (isset($_POST[$field_key]) && $_POST[$field_key] !== '') {
+            $plugin->save_setting($field_key, sanitize_text_field(wp_unslash($_POST[$field_key])));
         } else {
-            $plugin->delete_setting( $field_key );
+            $plugin->delete_setting($field_key);
         }
     }
 
@@ -115,22 +115,6 @@ $tech_stack             = $plugin->get_setting('tech_stack', array());
 $client_id              = $plugin->get_setting('client_id', '');
 $api_key                = $plugin->get_setting('api_key', '');
 $is_registered          = $plugin->get_setting('is_registered', false);
-
-// Jobs schema settings (table & column mapping)
-global $wpdb;
-$jobs_table_name      = $plugin->get_setting('jobs_table_name', $wpdb->prefix . 'jobs');
-$jobs_col_id          = $plugin->get_setting('jobs_col_id', 'id');
-$jobs_col_title       = $plugin->get_setting('jobs_col_title', 'title');
-$jobs_col_company     = $plugin->get_setting('jobs_col_company', 'company');
-$jobs_col_description = $plugin->get_setting('jobs_col_description', 'description');
-$jobs_col_required    = $plugin->get_setting('jobs_col_required_skills', 'required_skills');
-$jobs_col_preferred   = $plugin->get_setting('jobs_col_preferred_skills', 'preferred_skills');
-$jobs_col_experience  = $plugin->get_setting('jobs_col_experience_years', 'experience_years');
-$jobs_col_location    = $plugin->get_setting('jobs_col_location', 'location');
-$jobs_col_salary      = $plugin->get_setting('jobs_col_salary_range', 'salary_range');
-$jobs_col_employment  = $plugin->get_setting('jobs_col_employment_type', 'employment_type');
-$jobs_col_status      = $plugin->get_setting('jobs_col_status', 'status');
-$jobs_status_active   = $plugin->get_setting('jobs_status_active_value', 'active');
 
 // Common job categories
 $common_categories = array(
@@ -275,88 +259,8 @@ $common_tech_stack = array(
                 <div class="atw-semantic-section">
                     <h2><?php _e('WordPress Jobs Management', 'atw-semantic-search'); ?></h2>
                     <p class="description">
-                        <?php
-                        printf(
-                            /* translators: %s: jobs table name */
-                            esc_html__( 'Your jobs are loaded from the WordPress database table: %s. Sync these jobs to the Node.js server for semantic search processing.', 'atw-semantic-search' ),
-                            '<strong><code>' . esc_html( $jobs_table_name ) . '</code></strong>'
-                        );
-                        ?>
+                        <?php _e('Your jobs are stored in the WordPress database table: <code>wp_jobs</code>. Sync these jobs to the Node.js server for semantic search processing.', 'atw-semantic-search'); ?>
                     </p>
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">
-                                <label for="atw_jobs_table_name"><?php _e( 'Jobs table name', 'atw-semantic-search' ); ?></label>
-                            </th>
-                            <td>
-                                <input type="text"
-                                       id="atw_jobs_table_name"
-                                       name="atw_jobs_table_name"
-                                       value="<?php echo esc_attr( $jobs_table_name ); ?>"
-                                       class="regular-text" />
-                                <p class="description">
-                                    <?php
-                                    printf(
-                                        /* translators: %s: example table name */
-                                        __( 'Full table name that stores your jobs (for example: %s).', 'atw-semantic-search' ),
-                                        esc_html( $wpdb->prefix . 'jobs' )
-                                    );
-                                    ?>
-                                </p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Job ID column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_id" value="<?php echo esc_attr( $jobs_col_id ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Title column', 'atw-semantic-search' );</th>
-                            <td><input type="text" name="atw_jobs_col_title" value="<?php echo esc_attr( $jobs_col_title ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Company column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_company" value="<?php echo esc_attr( $jobs_col_company ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Description column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_description" value="<?php echo esc_attr( $jobs_col_description ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Required skills column', 'ad-web-technology' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_required_skills" value="<?php echo esc_attr( $jobs_col_required ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Preferred skills column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_preferred_skills" value="<?php echo esc_attr( $jobs_col_preferred ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Experience years column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_experience_years" value="<?php echo esc_attr( $jobs_col_experience ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Location column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_location" value="<?php echo esc_attr( $jobs_col_location ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Salary range column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_salary_range" value="<?php echo esc_attr( $jobs_col_salary ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Employment type column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_employment_type" value="<?php echo esc_attr( $jobs_col_employment ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Status column', 'atw-semantic-search' ); ?></th>
-                            <td><input type="text" name="atw_jobs_col_status" value="<?php echo esc_attr( $jobs_col_status ); ?>" class="regular-text" /></td>
-                        </tr>
-                        <tr>
-                            <th scope="row"><?php _e( 'Active status value', 'atw-semantic-search' ); ?></th>
-                            <td>
-                                <input type="text" name="atw_jobs_status_active_value" value="<?php echo esc_attr( $jobs_status_active ); ?>" class="regular-text" />
-                                <p class="description"><?php _e( 'Value in the status column that indicates an active job (e.g. active, publish, 1).', 'atw-semantic-search' ); ?></p>
-                            </td>
-                        </tr>
-                    </table>
                     
                     <?php
                     require_once(plugin_dir_path(__FILE__) . '../includes/class-jobs-manager.php');
@@ -385,13 +289,7 @@ $common_tech_stack = array(
                 <div class="atw-semantic-section">
                     <h2><?php _e('Generate Dummy Jobs (Testing)', 'atw-semantic-search'); ?></h2>
                     <p class="description">
-                        <?php
-                        printf(
-                            /* translators: %s: jobs table name */
-                            esc_html__( 'Generate 500 dummy jobs (Full Stack, SEO, Data Analytics, Mobile, and more) for testing the semantic search model. These jobs will be created in your WordPress database table: %s.', 'atw-semantic-search' ),
-                            '<strong><code>' . esc_html( $jobs_table_name ) . '</code></strong>'
-                        );
-                        ?>
+                        <?php _e('Generate 500 dummy jobs (Full Stack, SEO, Data Analytics, Mobile, and more) for testing the semantic search model. These jobs will be created in your WordPress database (wp_jobs table).', 'atw-semantic-search'); ?>
                     </p>
                     
                     <p>
