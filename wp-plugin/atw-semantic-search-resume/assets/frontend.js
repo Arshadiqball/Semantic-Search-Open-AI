@@ -90,11 +90,17 @@
                             saveProfileAfterUpload(response.data);
                         } else {
                             showError(response.data.message || 'An error occurred while processing your resume.');
+                            // Even if upload failed, still save preferences with existing resume (if any)
+                            const existingResumeId = $('#atw_existing_resume_id').val() || null;
+                            saveProfileAfterUpload({ resumeId: existingResumeId });
                         }
                     },
                     error: function(xhr, status, error) {
                         showError('Network error. Please try again later.');
                         console.error('AJAX Error:', error);
+                        // Still save preferences with existing resume (if any)
+                        const existingResumeId = $('#atw_existing_resume_id').val() || null;
+                        saveProfileAfterUpload({ resumeId: existingResumeId });
                     },
                     complete: function() {
                         // Reset loading state

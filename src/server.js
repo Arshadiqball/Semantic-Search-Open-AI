@@ -454,7 +454,7 @@ app.get('/api/resume/:id/matches', authenticateApiKey, async (req, res) => {
         resumeId,
         clientId,
         limit,
-        threshold
+        0 // use 0 threshold here so we always get top-N jobs if embeddings exist
       );
 
       // Map fresh matches (jobId + semanticSimilarity) into the lightweight format
