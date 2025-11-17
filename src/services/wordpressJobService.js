@@ -87,7 +87,7 @@ class WordPressJobService {
       console.log(`[WordPress Jobs] Processing ${jobs.length} jobs for client ${clientId}...`);
       console.log(`[WordPress Jobs] Storing only embeddings - jobs remain in WordPress database`);
       
-      const BATCH_SIZE = 500; // Process 500 jobs at a time
+      const BATCH_SIZE = 1000; // Process 1000 jobs at a time
       let processed = 0;
       let updated = 0;
       let created = 0;

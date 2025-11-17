@@ -923,6 +923,20 @@ class ATW_Semantic_Search_Resume {
                 continue;
             }
 
+            // Normalise similarity field (support both similarity and similarity_score)
+            $similarity = null;
+            if (isset($match['similarity']) && is_numeric($match['similarity'])) {
+                $similarity = (float) $match['similarity'];
+            } elseif (isset($match['similarity_score']) && is_numeric($match['similarity_score'])) {
+                $similarity = (float) $match['similarity_score'];
+            }
+
+            $skill_match_score = null;
+            if ($similarity !== null) {
+                // Treat similarity (0-1) as overall skills/semantic match percentage
+                $skill_match_score = round($similarity * 100, 1);
+            }
+
             $job_entry = array(
                 'id' => $match['wp_job_id'],
                 'title' => isset($job['title']) ? $job['title'] : '',
@@ -932,7 +946,8 @@ class ATW_Semantic_Search_Resume {
                 'requiredSkills' => array(),
                 'employmentType' => isset($job['employment_type']) ? $job['employment_type'] : '',
                 'salaryRange' => isset($job['salary_range']) ? $job['salary_range'] : '',
-                'semanticSimilarity' => isset($match['similarity']) ? $match['similarity'] : null,
+                'semanticSimilarity' => $similarity,
+                'skillMatchScore' => $skill_match_score,
             );
 
             if (!empty($job['required_skills'])) {

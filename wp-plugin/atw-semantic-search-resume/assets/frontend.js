@@ -252,6 +252,11 @@
                 // Meta information
                 const $meta = $('<div>').addClass('atw-semantic-job-meta');
                 
+                if (typeof job.skillMatchScore === 'number') {
+                    $meta.append($('<div>').addClass('atw-semantic-job-meta-item')
+                        .html('<span>🎯</span> ' + Math.round(job.skillMatchScore) + '% skills match'));
+                }
+
                 if (job.location) {
                     $meta.append($('<div>').addClass('atw-semantic-job-meta-item')
                         .html('<span>📍</span> ' + job.location));
